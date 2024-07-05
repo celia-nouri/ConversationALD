@@ -1,6 +1,6 @@
 import json
 import wandb
-from models.model import *
+from models.model import all_model_names, get_device
 from transformers import AdamW
 import torch.nn.functional as F
 from mydatasets.mydataset import get_data_loaders

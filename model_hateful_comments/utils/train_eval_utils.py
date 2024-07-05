@@ -1,73 +1,10 @@
-import numpy as np
 import torch
 import torch.nn as nn
 from collections import Counter
-from sklearn.metrics import f1_score, accuracy_score
-import random
 from transformers import AutoTokenizer
 from models.model import all_model_names
 
 tokenizer = AutoTokenizer.from_pretrained("facebook/roberta-hate-speech-dynabench-r4-target")
-
-def train_or_eval_model(model, loss_function, dataloader, device, args, optimizer=None, train=False):
-    losses, preds, labels = [], [], []
-
-    assert not train or optimizer != None
-    if train:  
-        model.train()
-    else: 
-        model.eval()
-
-    for data in dataloader: 
-        if train:
-            optimizer.zero_grad()
-
-        utterance_features, labels, edges, utterances, ids = data
-
-
-        utterance_features = utterance_features.to(device)
-        labels = labels.to(device)  # (B,N)
-        edges = edges.to(device)
-
-        log_prob, diff_loss = model(utterance_features, edges) # (B, N, C)
-
-        loss = loss_function(log_prob.permute(0,2,1), label)
-
-        loss = loss + diff_loss
-        label = label.cpu().numpy().tolist()
-        pred = torch.argmax(log_prob, dim = 2).cpu().numpy().tolist() # (B,N)
-        preds += pred
-        labels += label
-        losses.append(loss.item())
-
-
-        if train:
-
-            loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), args.max_grad_norm)
-            optimizer.step()
-
-    if preds != []:
-        new_preds = []
-        new_labels = []
-        for i,label in enumerate(labels): 
-            for j,l in enumerate(label): 
-                if l != -1: 
-                    new_labels.append(l)
-                    new_preds.append(preds[i][j])
-    else:
-        return float('nan'), float('nan'), [], [], float('nan'), [], [], [], [], []
-
-    avg_loss = round(np.sum(losses) / len(losses), 4)
-    avg_accuracy = round(accuracy_score(new_labels, new_preds) * 100, 2)
-
-    if args.dataset_name in ['IEMOCAP', 'MELD', 'EmoryNLP_small', 'EmoryNLP_big']:
-        avg_fscore = round(f1_score(new_labels, new_preds, average='weighted') * 100, 2)
-    elif args.dataset_name == 'DailyDialog':
-        avg_fscore = round(f1_score(new_labels, new_preds, average='micro', labels=[0,2,3,4,5,6]) * 100, 2) #1 is neutral
-
-    return avg_loss, avg_accuracy, labels, preds, avg_fscore
-
 
 def precision_score(true_labels, predicted_labels):
     true_positive = Counter()

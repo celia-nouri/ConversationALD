@@ -4,12 +4,11 @@ import numpy as np
 from tqdm import tqdm 
 import wandb
 import argparse
-from models.model import *
+from models.model import all_model_names, get_model, get_device
 #from datasets.dataloader import get_data_loaders
 import torch.nn as nn
 from transformers import AdamW
 import torch.nn.functional as F
-from sklearn.metrics import precision_score, recall_score, f1_score
 from utils.train_eval_utils import precision_score, evaluate_model, run_model_pred, update_running_metrics, f1_score, recall_score
 from transformers import AutoModelForSequenceClassification
 from mydatasets.hateful_discussions import get_data_loaders
@@ -143,7 +142,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 optimizer.step()
                 # Update running metrics on training set 
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
-                            
+
             else:
                 print('y pred is ', y_pred, ' and it has a shape of ', y_pred.shape)
                 print('y is ', y, ' and it has a shape of ', y.shape)
@@ -280,19 +279,8 @@ def main_train():
 
     train_loader, valid_loader, test_loader = get_data_loaders()
 
-    # Instantiate your model
-    model = SimpleTextClassifier()
-    if model_name == "simple-graph":
-        model = SimpleGraphModel(in_channels=768, hidden_channels=hidden_channels, num_heads=num_heads)
-    elif model_name == "distil-class":
-        model = DistilBERTClass()
-    elif model_name == "text-class":
-        model = SimpleTextClassifier()
-    elif model_name == "roberta-class":
-        model = RoBERTaHateClassifier()
-    elif model_name == 'fb-roberta-hate':
-        model = AutoModelForSequenceClassification.from_pretrained("facebook/roberta-hate-speech-dynabench-r4-target")
-    
+    # Instantiate the model
+    model = get_model(args, model_name, hidden_channels=64, num_heads=1)
 
     # Define optimizer and loss function
     criterion = masked_bce_loss

@@ -57,7 +57,7 @@ class GraphFusionLayer(nn.Module):
             :, : self.num_bottle_neck_tokens
         ]
 
-        if vit_hidden_states != None:
+        if vit_hidden_states:
             vit_hidden_states = vit_hidden_states[x_image_indexes, :, :]
             vit_hidden_states_in = torch.cat(
                 #[bottle_neck[x_image_indexes], vit_hidden_states], dim=1

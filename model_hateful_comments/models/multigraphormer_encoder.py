@@ -7,11 +7,8 @@ from fairseq.modules.quant_noise import quant_noise as apply_quant_noise_
 
 from .multihead_attention import MultiheadAttention
 from .graphormer_layers import GraphNodeFeature, GraphAttnBias
-from .graphormer_graph_encoder_layer import (
-    GraphormerGraphEncoderLayer,
-    GraphEncoderStack,
-)
-from .fusionlayers import GraphFusionLayer, GraphFusionStack
+from .graphormer_graph_encoder_layer import  GraphEncoderStack
+from .fusionlayers import GraphFusionStack
 from transformers import AutoModel, AutoModelForSequenceClassification
 
 
@@ -343,7 +340,7 @@ class MultiGraphormerGraphEncoder(nn.Module):
         n_graph, n_node = bert_output.size()[:2]
         print(f'n_graph: {n_graph}, n_node: {n_node}')
 
-        if batched_data["x_images"] != None:
+        if batched_data["x_images"]:
             vit_output = self.vit_model(
                 batched_data["x_images"]
             ).last_hidden_state
