@@ -103,10 +103,10 @@ def create_hatespeech_dataset(size='medium', validation=True):
     path = os.path.expandvars("$SLURM_TMPDIR")
     train_idx = []
     train_filename = path + "/train-idx.txt" if size == "medium" else path + "/train-idx-many.txt" if size == "large" else path + "/train-idx-small.txt"
-    if size == "small-1000":
-        train_filename = path + "/train-idx-small-1000.txt"
     test_filename = path + "/test-idx-only.txt" if size == "medium" else path + "/test-idx-only-many.txt" if size == "large" else path + "/test-idx-only-small.txt"
-    
+    if size == "small-1000":
+        train_filename = path + "/train-idx-small-1000.txt"  
+        test_filename = path + "/test-idx-only-small-1000.txt"
     with open(train_filename, "r") as file:
         for line in file:
             train_idx.append(int(line[:-1]))
@@ -115,6 +115,9 @@ def create_hatespeech_dataset(size='medium', validation=True):
     if validation:
         val_filename = path + "/val-idx.txt" if size == "medium" else path + "/val-idx-many.txt" if size == "large" else path + "/val-idx-small.txt"
         test_filename = path + "/test-idx.txt" if size == "medium" else path + "/test-idx-many.txt" if size == "large" else path + "/test-idx-small.txt"
+        if size == "small-1000":
+            val_filename = path + "/val-idx-small-1000.txt"  
+            test_filename = path + "/test-idx-small-1000.txt"
         with open(val_filename, "r") as file:
             for line in file:
                 val_idx.append(int(line[:-1]))

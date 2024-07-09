@@ -60,11 +60,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     models_string = json.dumps(all_model_names)
-    parser.add_argument('--model', type=str, default='bert-class', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--model', type=str, default='fb-roberta-hate', help='the model to use, can take one of the following values: ' + models_string)
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
     parser.add_argument('--size', type=str, default='small', help='the size of the dataset, can take one of the following values: ["small", "medium", "large"]')
     parser.add_argument('--validation', type=bool, default=True, help='rather or not to use a validation set for model tuning')
-    parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=5, metavar='E', help='number of epochs')
     parser.add_argument('--lr', type=float, default=2e-5, metavar='E', help='learning rate')
 
 

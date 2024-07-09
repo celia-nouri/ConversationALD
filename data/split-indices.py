@@ -1,3 +1,5 @@
+import random
+
 def split_lines(input_file, val_file, test_file):
     with open(input_file, 'r') as infile, \
          open(val_file, 'w') as val_outfile, \
@@ -9,7 +11,21 @@ def split_lines(input_file, val_file, test_file):
             else:
                 test_outfile.write(line)
 
-def main():
+def print_x_rand_indices(input_file, out_file, x):
+    in_lines = []
+    with open(input_file, 'r') as infile:
+        for idx, line in enumerate(infile):
+            in_lines.append(line)
+    
+    random.shuffle(in_lines)
+
+    with open(out_file, 'w') as outfile:
+        for line in in_lines[:x]:
+            outfile.write(line)
+    
+
+
+def call_split_lines():
     # Specify the file names
     input_file = 'test-idx-many.txt'
     val_file = 'val-idx-many.txt'
@@ -18,5 +34,13 @@ def main():
     # Call the function to split lines
     split_lines(input_file, val_file, test_file)
 
+def call_print_x_rand():
+    # Specify the file names
+    input_file = 'test-idx-only-many.txt'
+    out_file = 'test-idx-only-small-1000.txt'
+
+    print_x_rand_indices(input_file, out_file, 1000)
+
+
 if __name__ == "__main__":
-    main()
+    call_print_x_rand()
