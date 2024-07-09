@@ -35,34 +35,34 @@ class GraphFusionLayer(nn.Module):
         bert_attention_mask: Optional[torch.FloatTensor] = None,
         x_image_indexes: Optional[torch.Tensor] = None,
     ):
-        print(f'bert_hidden_states shape: ', bert_hidden_states.size())
-        print(f'vit_hidden_states shape: ', vit_hidden_states.size())
-        print(f'bottle_neck shape: ', bottle_neck.size())
-        print(f'bert_attention_mask shape: ', bert_attention_mask.size())
         bert_hidden_states_in = torch.cat(
             [bottle_neck, bert_hidden_states], dim=1
         )
-        bert_hidden_states_in = bert_hidden_states_in.squeeze(0)
-        bert_attention_mask = bert_attention_mask.squeeze(0)
-        print(f'bert_hidden_states shape: ', bert_hidden_states_in.size())
-        print(f'bert_attention_mask shape: ', bert_attention_mask.size())
+
+        assert bert_hidden_states_in.size(0) == bert_attention_mask.size(0), "batch size mismatch"
+        assert bert_hidden_states_in.size(1) == bert_attention_mask.size(2), "sequence length mismatch"
         bert_hidden_output_out = self.bert_forward(
             bert_hidden_states_in, bert_attention_mask, None, None, None
         )
 
-        bert_hidden_output = bert_hidden_output_out[
-            :, self.num_bottle_neck_tokens :
-        ]
-        bottle_neck_output = bert_hidden_output_out[
-            :, : self.num_bottle_neck_tokens
-        ]
+        bert_hidden_output = bert_hidden_output_out[:, self.num_bottle_neck_tokens :]
+        bottle_neck_output = bert_hidden_output_out[:, : self.num_bottle_neck_tokens]
 
-        if vit_hidden_states:
-            vit_hidden_states = vit_hidden_states[x_image_indexes, :, :]
+        if vit_hidden_states is not None:
+            #x_image_indexes = x_image_indexes.long()
+            #print("bottle_neck[x_image_indexes] ", bottle_neck[x_image_indexes].size())
             vit_hidden_states_in = torch.cat(
                 #[bottle_neck[x_image_indexes], vit_hidden_states], dim=1
                 [bottle_neck, vit_hidden_states], dim=1
             )
+            #vit_hidden_states = vit_hidden_states[x_image_indexes, :, :]
+        
+            #bottle_neck = bottle_neck[:1, :, :]
+            
+            #vit_hidden_states_in = torch.cat(
+                #[bottle_neck[x_image_indexes], vit_hidden_states], dim=1
+            #    [bottle_neck, vit_hidden_states], dim=1
+            #)
             vit_hidden_output_out = self.vit_forward(vit_hidden_states_in)
             vit_hidden_output = vit_hidden_output_out[
                 :, self.num_bottle_neck_tokens :
@@ -71,7 +71,10 @@ class GraphFusionLayer(nn.Module):
                 vit_hidden_output_out[:, : self.num_bottle_neck_tokens]
                 + bottle_neck_output
             ) / 2
-            # graph_bottleneck[x_image_indexes] = (graph_bottleneck[x_image_indexes] + vit_bottleneck[:, 0, :]) / 2
+            #bottle_neck_output = (
+            #    vit_hidden_output_out[:, : self.num_bottle_neck_tokens]
+            #    + bottle_neck_output
+            #) / 2
         else:
             vit_hidden_output = None
 
@@ -142,6 +145,9 @@ class GraphFusionLayer(nn.Module):
                 encoder_attention_mask,
             )
         else:
+            
+            attention_mask = attention_mask.unsqueeze(-1).repeat(1, 1, 1, 102)
+ 
             layer_outputs = self.bert_encoder(
                 hidden_states,
                 attention_mask,

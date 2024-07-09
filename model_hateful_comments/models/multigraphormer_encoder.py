@@ -320,99 +320,90 @@ class MultiGraphormerGraphEncoder(nn.Module):
         attn_mask: Optional[torch.Tensor] = None,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         # print the shape of all tensors in batched_data
-        print("inside forward of multigraphormer graph encoder")
-        print(batched_data)
       
-
-        mask = batched_data["y_mask"]
-        x = batched_data["x"]
-
-        x_token_type_ids = x["token_type_ids"] #[mask, :]
-        x_attention_mask = x["attention_mask"] #[mask, :]
-        x_input_ids = x["input_ids"] #[mask, :]
+        mask = batched_data["y_mask"] # [#comments]
+        x = batched_data["x"] 
+        # x["token_type_ids"] is [#comments, 100]
+        x_token_type_ids = x["token_type_ids"][mask, :] # [1, 100]
+        x_attention_mask = x["attention_mask"][mask, :] # [1, 100]
+        x_input_ids = x["input_ids"][mask, :] # [1, 100]
         bert_output = self.text_model(
             token_type_ids=x_token_type_ids,
             attention_mask=x_attention_mask,
             input_ids=x_input_ids,
-        ).last_hidden_state
-        bert_output = bert_output.unsqueeze(0)
-        print(f'bert_output shape: ', bert_output.size())
-        n_graph, n_node = bert_output.size()[:2]
-        print(f'n_graph: {n_graph}, n_node: {n_node}')
+        ).last_hidden_state # [1, 100, 768]
+        
+        n_graph = 1
+        n_node = bert_output.size()[0]
 
-        if batched_data["x_images"]:
+        if batched_data["x_images"] is not None:
             vit_output = self.vit_model(
                 batched_data["x_images"]
-            ).last_hidden_state
-            vit_output = vit_output.unsqueeze(0)
+            ).last_hidden_state # [num_images, 197, 768]
+            # Take only the first image, otherwise the sizes are not matching
+            # TODO(celia): double check this and try understanding what is wrong
+            image = vit_output[0, :, :] 
+            vit_output = image.unsqueeze(0) # [1, 197, 768]]
         else:
             vit_output = None
-        print(f'vit_output shape: ', vit_output.size())
-        bottle_neck = self.bottle_neck.weight.unsqueeze(0).unsqueeze(2).repeat(n_graph, 1, 100, 1)
-        print(f'bottle_neck shape: ', bottle_neck.size())
+        
+        bottle_neck = self.bottle_neck.weight.unsqueeze(0).repeat(n_node, 1, 1) # [1, 2, 764]
 
         added_mask = (
             torch.Tensor([1] * self.num_bottle_neck)
             .unsqueeze(0)
-            .unsqueeze(2)
-            .unsqueeze(-1)
-            .repeat(n_graph, 1, 100, 768)
+            .repeat(n_node, 1)
+            .unsqueeze(1)
         ).to(self.device)
-        print(f'added_mask shape: ', added_mask.size())
-        x_attention_mask = x_attention_mask.unsqueeze(0).unsqueeze(-1).repeat(n_graph, 1, 1, 768)
-        
-        print(f'x_attention_mask shape: ', x_attention_mask.size())
-        x_attention_mask = torch.cat([added_mask, x_attention_mask], dim=1)
-        extended_attention_mask = x_attention_mask
-        print(f'x_attention_mask shape: ', x_attention_mask.size())
-        #extended_attention_mask = x_attention_mask[:, None, :]
-        #extended_attention_mask = extended_attention_mask.to(
-        #    dtype=torch.half
-        #)  # fp16 compatibility
-        extended_attention_mask = (1.0 - extended_attention_mask) #.torch.finfo( torch.half).min
-        print(f'extended_attention_mask shape: ', extended_attention_mask.size())
-        image_indices = batched_data["x_image_index"]
-        image_index = image_indices[mask]
-        print(f'image_index shape: ', image_index.size())
 
+        #added_mask = (
+        #    torch.Tensor([1] * self.num_bottle_neck)
+        #    .unsqueeze(0)
+        #    .unsqueeze(-1)
+        #    .repeat(1, 1, 100)
+        #).to(self.device)
+        x_attention_mask = x_attention_mask.unsqueeze(1).repeat(1, 1, 1)
+        
+        x_attention_mask = torch.cat([added_mask, x_attention_mask], dim=2)
+        extended_attention_mask = x_attention_mask
+        extended_attention_mask = (1.0 - extended_attention_mask) #.torch.finfo( torch.half).min
+  
         bert_output, vit_output, bottle_neck = self.fusion_layers[0](
             bert_output,
             vit_output,
             bottle_neck,
             bert_attention_mask=extended_attention_mask,
-            x_image_indexes=image_index.to('cpu').long(),
+            x_image_indexes=batched_data["x_image_index"].long(),
         )
         if not self.with_graph:
             return bert_output, vit_output, bottle_neck
-        #bottle_neck_nodes = bottle_neck[:, 0, :]
-        #shape = batched_data["x"].shape
-        bottle_neck_nodes = bottle_neck[:, 0, :]
 
-        shape = batched_data["x"].shape
+        bottle_neck_nodes = bottle_neck[:, 0, :]
+        
+        shape = x["token_type_ids"].unsqueeze(0).shape
 
         graph_data = (
             torch.zeros((shape[0], shape[1], 768))
-            .cuda()
             .to(bottle_neck_nodes.dtype)
-        )
-        graph_data[mask, :] = bottle_neck_nodes
+        ).to(self.device) # [1, #comments, 768]
+        graph_data[:, mask, :] = bottle_neck_nodes
 
         # compute padding mask. This is needed for multi-head attention
         x = graph_data
 
-        n_graph, n_node = x.size()[:2]
+        n_graph, n_node = shape[:2]
         padding_mask = (x[:, :, 0]).eq(0)  # B x T x 1
         padding_mask_cls = torch.zeros(
             n_graph, 1, device=padding_mask.device, dtype=padding_mask.dtype
         )
-
         padding_mask = torch.cat((padding_mask_cls, padding_mask), dim=1)
+        mask = mask.unsqueeze(0)
         mask = torch.cat((padding_mask_cls, mask), dim=1)
         # B x (T+1) x 1
 
         x = self.graph_node_feature(
             x, batched_data["in_degree"], batched_data["out_degree"]
-        )
+        ) # [1, #comments + 1, 768]
 
         # x: B x T x C
 
@@ -474,8 +465,10 @@ class MultiGraphormerGraphEncoder(nn.Module):
 
         if last_state_only:
             inner_states = [x]
-
+        
         global_embedding = x[0, :, :]
+        # bert_output [1, 100, 768]; bottle_neck [1, 2, 768]; global_embedding [1, 768]
+                
         return bert_output, bottle_neck, global_embedding
 
 

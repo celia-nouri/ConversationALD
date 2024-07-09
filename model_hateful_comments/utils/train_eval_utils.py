@@ -3,8 +3,12 @@ import torch.nn as nn
 from collections import Counter
 from transformers import AutoTokenizer
 from models.model import all_model_names
+import wandb
+from tqdm import tqdm 
+from datetime import datetime
 
 tokenizer = AutoTokenizer.from_pretrained("facebook/roberta-hate-speech-dynabench-r4-target")
+wandb.init(project="hatespeech-class")
 
 def precision_score(true_labels, predicted_labels):
     true_positive = Counter()
@@ -178,3 +182,123 @@ def update_running_metrics(loss, predicted_label, y, running_loss, running_corre
     true_labels.extend(y.cpu().numpy())
     predicted_labels.extend(predicted_label)
     return running_loss, running_corrects, true_labels, predicted_labels, good_pred
+
+
+def train(args, model, train_loader, val_loader, test_loader, criterion, optimizer, device):
+    print("Training set size: ", len(train_loader))
+    print("Validation set size: ", len(val_loader))
+    print("Test set size: ", len(test_loader))
+    num_epochs, model_name, validation, size = args.epochs, args.model, args.validation, args.size
+    print("Train: epochs=", num_epochs, ", dataset_name=hateful_discussions", ", model=", model_name)
+    model.to(device)
+    best_val_loss = float('inf')
+    # Generate a unique timestamp string
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    model_check_path = f"./models/checkpoints/{timestamp}_{model_name}_{size}.pt"
+    # Training loop
+    for epoch in range(num_epochs):
+        running_loss = float(0)
+        running_corrects = 0
+        true_labels = []
+        predicted_labels = []
+        model.train()
+        progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}")
+        for index, data in enumerate(progress_bar):
+            optimizer.zero_grad()
+            data = data.to(device)
+            y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device)
+            if model_name == 'fb-roberta-hate' or model_name =='bert-class':
+                loss = y_pred.loss
+                loss.backward()
+                optimizer.step()
+                logits = y_pred.logits
+                # Compute predictions
+                _, pred_label = torch.max(logits, dim=1)
+                # Update running metrics
+                running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
+                    loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
+                )
+            elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer':
+                # Compute the loss
+                criterion = nn.CrossEntropyLoss()
+                loss = criterion(y_pred, y).to(device)
+                loss.backward()
+                optimizer.step()
+                _, pred_label = torch.max(y_pred, dim=1)
+                # Update running metrics on training set 
+                running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels)
+            
+            elif y_pred.shape == y.shape:
+                y_pred = y_pred.to(device)
+                loss = criterion(y_pred, y).to(device)
+                loss.backward()
+                optimizer.step()
+                # Update running metrics on training set 
+                running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
+
+            else:
+                print('y pred is ', y_pred, ' and it has a shape of ', y_pred.shape)
+                print('y is ', y, ' and it has a shape of ', y.shape)
+                print("ERROR: output and expected predictions have different shapes. y_pred: ", y_pred.shape, " , target y: ", y.shape)
+                return
+     
+        avg_loss = running_loss/ len(train_loader)
+        epoch_accuracy = float(running_corrects) / len(train_loader)
+        epoch_precision = precision_score(true_labels, predicted_labels)
+        epoch_recall = recall_score(true_labels, predicted_labels)
+        epoch_f1 = f1_score(true_labels, predicted_labels)
+
+
+        # Log metrics to wandb
+        wandb.log({
+            "epoch": epoch + 1,
+            "train_loss": avg_loss,
+            "train_accuracy": epoch_accuracy,
+            "train_precision": epoch_precision,
+            "train_recall": epoch_recall,
+            "train_f1": epoch_f1
+        })
+        
+        print(f"Epoch [{epoch + 1}/{num_epochs}], Train Loss: {avg_loss:.4f}, "
+            f"Train Accuracy: {epoch_accuracy:.4f}, Train Precision: {epoch_precision:.4f}, "
+            f"Train Recall: {epoch_recall:.4f}, Train F1 Score: {epoch_f1:.4f}")
+
+        # Validation
+        if validation:
+            avg_val_loss, val_accuracy, val_f1, val_precision, val_recall = evaluate_model(model, val_loader, criterion, model_name, 'hateful_discussions', device)
+            wandb.log({
+                "epoch": epoch + 1,
+                "val_loss": avg_val_loss,
+                "val_accuracy": val_accuracy,
+                "val_precision": val_precision,
+                "val_recall": val_recall,
+                "val_f1": val_accuracy
+            })
+            
+            print(f"Epoch [{epoch + 1}/{num_epochs}], Validation Loss: {avg_val_loss:.4f}, "
+                f"Val Accuracy: {val_accuracy:.4f}, Val Precision: {val_precision:.4f}, "
+                f"Val Recall: {val_recall:.4f}, Val F1 Score: {val_f1:.4f}")
+            
+            # Update best validation loss and save checkpoint if needed
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                torch.save(model.state_dict(), model_check_path)
+    if not validation:
+        torch.save(model.state_dict(), model_check_path)
+
+    # Finally, evaluate on the test set and report all metrics
+    print("Running evaluation ...")
+    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate_model(model, test_loader, criterion, model_name, 'hateful_discussions', device)
+    wandb.log({
+        "test_loss": test_loss,
+        "test_accuracy": test_accuracy,
+        "test_precision": test_precision,
+        "test_recall": test_recall,
+        "test_f1": test_f1
+    })
+    print(f"Test Loss: {test_loss:.4f}, "
+        f"Test Accuracy: {test_accuracy:.4f}, Test Precision: {test_precision:.4f}, "
+        f"Test Recall: {test_recall:.4f}, Test F1 Score: {test_f1:.4f}")
+
+    # Finish the run
+    wandb.finish()

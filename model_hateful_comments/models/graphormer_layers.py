@@ -42,9 +42,7 @@ class GraphNodeFeature(nn.Module):
         node_feature = (
             x + self.in_degree_encoder(in_degree) + self.out_degree_encoder(out_degree)
         )
-
         graph_token_feature = self.graph_token.weight.unsqueeze(0).repeat(n_graph, 1, 1)
-
         graph_node_feature = torch.cat([graph_token_feature, node_feature], dim=1)
 
         return graph_node_feature
@@ -89,7 +87,7 @@ class GraphAttnBias(nn.Module):
             batched_data["spatial_pos"],
             batched_data["x"],
         )
-
+        attn_bias = attn_bias.unsqueeze(0)
         graph_attn_bias = attn_bias.clone()
         graph_attn_bias = graph_attn_bias.unsqueeze(1).repeat(
             1, self.num_heads, 1, 1
@@ -97,7 +95,10 @@ class GraphAttnBias(nn.Module):
 
         # spatial pos
         # [n_graph, n_node, n_node, n_head] -> [n_graph, n_head, n_node, n_node]
-        spatial_pos_bias = self.spatial_pos_encoder(spatial_pos).permute(0, 3, 1, 2)
+        spatial_pos = spatial_pos.to(torch.long)
+        spatial_pos_enc = self.spatial_pos_encoder(spatial_pos)
+        spatial_pos_enc = spatial_pos_enc.unsqueeze(0)
+        spatial_pos_bias = spatial_pos_enc.permute(0, 3, 1, 2)
         graph_attn_bias[:, :, 1:, 1:] = graph_attn_bias[:, :, 1:, 1:] + spatial_pos_bias
 
         # reset spatial pos here

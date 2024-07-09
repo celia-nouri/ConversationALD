@@ -183,10 +183,10 @@ class GraphormerModel(FairseqEncoderModel):
 class GraphormerEncoder(FairseqEncoder):
     def __init__(self, args, with_graph=False, device=None):
         super().__init__(dictionary=None)
-        if with_graph:
-            self.max_nodes = args.max_nodes
         self.device = device
         self.with_graph = with_graph
+        if with_graph:
+            self.max_nodes = args.max_nodes
    
         self.graph_encoder = MultiGraphormerGraphEncoder(
             # < for graphormer
@@ -265,8 +265,10 @@ class GraphormerEncoder(FairseqEncoder):
             self.graph_encoder(
                 batched_data,
             )
-        )
-        out_all_subset = []  # empty return value if not hate speech task
+        ) 
+        # text_embedding: [1, 100, 768]; image_embedding: [1, 197, 768]; bottleneck_embedding: [1, 2, 768]
+        if self.with_graph:
+            bottleneck_embedding = bottleneck_embedding.unsqueeze(0).repeat(text_embedding.size()[0], 1, 1)
 
         # Classify the comment
         for layer in self.node_encoder_stack:
@@ -275,10 +277,11 @@ class GraphormerEncoder(FairseqEncoder):
             bottleneck_embedding = layer(bottleneck_embedding)
         
         if not self.with_graph:
+            # TODO(celia): try out different things than just averging out all 3 contributors
             output = (text_embedding + image_embedding + bottleneck_embedding) / 3
             return output, bottleneck_embedding
 
-
+        # TODO(celia): try out different things than just averging out all 3 contributors
         out_all = text_embedding + bottleneck_embedding
         out_all = out_all / 2
 

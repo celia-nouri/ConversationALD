@@ -10,3 +10,4 @@
 *.tar.gz
 *.txt
 *.pt
+!requirements.txt

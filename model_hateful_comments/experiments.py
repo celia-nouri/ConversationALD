@@ -3,11 +3,11 @@ import wandb
 from models.model import all_model_names, get_device
 from transformers import AdamW
 import torch.nn.functional as F
-from mydatasets.mydataset import get_data_loaders
+from mydatasets.mydataset import get_pyg_data_loaders
 from models.model import get_model
 from fairseq.utils import get_available_activation_fns
 
-from train import train
+from utils.train_eval_utils import train
 import argparse
 
 
@@ -39,7 +39,7 @@ def run_experiments(args):
         "dataset": 'hateful_discussions',
     }    
 
-    train_loader, valid_loader, test_loader = get_data_loaders(size, validation)
+    train_loader, valid_loader, test_loader = get_pyg_data_loaders(size, validation, 0) #get_data_loaders(size, validation)
     
     # Instantiate your model
     model = get_model(args, model_name, hidden_channels=64, num_heads=1)
@@ -60,7 +60,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     models_string = json.dumps(all_model_names)
-    parser.add_argument('--model', type=str, default='multimodal-transformer', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--model', type=str, default='bert-class', help='the model to use, can take one of the following values: ' + models_string)
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
     parser.add_argument('--size', type=str, default='small', help='the size of the dataset, can take one of the following values: ["small", "medium", "large"]')
     parser.add_argument('--validation', type=bool, default=True, help='rather or not to use a validation set for model tuning')

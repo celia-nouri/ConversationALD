@@ -4,6 +4,7 @@ import torch
 from typing import Optional, Callable
 import numpy as np
 from torch_geometric.data import Dataset
+from .pyg_datasets.pyg_dataset import GraphormerPYGDataset
 
 class HatefulDiscussions(Dataset):
     def __init__(
@@ -131,6 +132,36 @@ def create_hatespeech_dataset(size='medium', validation=True):
         "source": "pyg",
     }
 
+def create_graphpyg_dataset(size='medium', validation=True, seed=0):
+    hatespeech_data = create_hatespeech_dataset(size, validation)
+    pyg_dataset = GraphormerPYGDataset(
+        hatespeech_data["dataset"], 
+        seed=seed, 
+        train_idx=hatespeech_data["train_idx"],
+        valid_idx=hatespeech_data["valid_idx"],
+        test_idx=hatespeech_data["test_idx"],
+    )
+    return pyg_dataset
+
+class HatefulDiscPygDatasetLoader:
+    def __init__(self, size, validation=True, seed=0):
+        self.graphpyg = create_graphpyg_dataset(size, validation, seed)
+        self.dataset = self.graphpyg.dataset
+        self.train_idx = self.graphpyg.train_idx
+        self.test_idx = self.graphpyg.test_idx
+        self.val_idx = self.graphpyg.valid_idx
+
+    def get_train_data(self):
+        return [self.graphpyg.get(idx) for idx in self.train_idx]
+
+    def get_test_data(self):
+        return [self.graphpyg.get(idx) for idx in self.test_idx]
+    
+    def get_val_data(self):
+        return [self.graphpyg.get(idx) for idx in self.val_idx]
+
+
+
 class HatefulDiscussionsDatasetLoader:
     def __init__(self, size, validation=True):
         hatespeech_data = create_hatespeech_dataset(size, validation)
@@ -147,14 +178,6 @@ class HatefulDiscussionsDatasetLoader:
     
     def get_val_data(self):
         return [self.dataset.get(idx) for idx in self.val_idx]
-
-
-def get_data_loaders(size='medium', validation=True):
-    print(f"Building hateful discussions dataloaders: size = {size}, validation = {validation}")
-
-    ds = HatefulDiscussionsDatasetLoader(size, validation)
-    train_loader, valid_loader, test_loader = ds.get_train_data(), ds.get_val_data(), ds.get_test_data()
-    return train_loader, valid_loader, test_loader
 
 #if __name__ == "__main__":
     #HatefulDiscussions(root="processed_graphs")
