@@ -5,7 +5,7 @@ import torch.nn.functional as F
 from transformers import DistilBertModel, RobertaModel, AutoModelForSequenceClassification
 from models.multimodal_transformer import GraphormerModel, GraphormerEncoder
 
-all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "fb-roberta-hate", "img-text-transformer", "multimodal-transformer"]
+all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer"]
 #var tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased', truncation=True, do_lower_case=True);
 
 # DistilBERT Classifier model 
@@ -172,10 +172,13 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
     elif model_name == 'fb-roberta-hate':
         model = AutoModelForSequenceClassification.from_pretrained("facebook/roberta-hate-speech-dynabench-r4-target")
     elif model_name == 'img-text-transformer':
-        encoder = GraphormerEncoder(args, with_graph=False, device=device).to(device)
+        encoder = GraphormerEncoder(args, with_graph=False, enable_images=True, device=device).to(device)
+        model = GraphormerModel(args, encoder)
+    elif model_name == 'text-graph-transformer':
+        encoder = GraphormerEncoder(args, with_graph=True, enable_images=False, device=device).to(device)
         model = GraphormerModel(args, encoder)
     elif model_name == 'multimodal-transformer':
-        encoder = GraphormerEncoder(args, with_graph=True, device=device).to(device)
+        encoder = GraphormerEncoder(args, with_graph=True, enable_images=True, device=device).to(device)
         model = GraphormerModel(args, encoder)
     model = model.to(device)
     return model

@@ -66,7 +66,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device):
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                     loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                 )
-            elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer':
+            elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer":
                 criterion = nn.CrossEntropyLoss()
                 loss = criterion(y_pred, y).to(device)
                 _, pred_label = torch.max(y_pred, dim=1)
@@ -151,12 +151,8 @@ def run_model_pred(model, data, model_name, dataset_name, device):
             inputs = {key: value.to(device) for key, value in inputs.items()}
             y_pred = model(**inputs)
 
-    elif model_name == "multimodal-transformer" or model_name == "img-text-transformer":
+    elif model_name == "multimodal-transformer" or model_name == "img-text-transformer" or model_name == "text-graph-transformer":
         if dataset_name == "hateful_discussions":
-            masked_index = data.y_mask.nonzero(as_tuple=True)[0]
-            texts = data.x_text
-            my_text = texts[masked_index]
-            my_dic, _, _, _ = my_text
             y_pred, _ = model(data)
             y_pred = y_pred.to(device)
             y = data.y
@@ -191,7 +187,11 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
     num_epochs, model_name, validation, size = args.epochs, args.model, args.validation, args.size
     print("Train: epochs=", num_epochs, ", dataset_name=hateful_discussions", ", model=", model_name)
     model.to(device)
-    best_val_loss = float('inf')
+    best_val_f1_score = float('-inf')
+    best_model = model 
+    # Patience is the maximum number of epoch with decaying validation scores we will wait for, before early stopping the training
+    patience = 6
+    trigger_times = 0
     # Generate a unique timestamp string
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     model_check_path = f"./models/checkpoints/{timestamp}_{model_name}_{size}.pt"
@@ -218,7 +218,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                     loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                 )
-            elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer':
+            elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer':
                 # Compute the loss
                 criterion = nn.CrossEntropyLoss()
                 loss = criterion(y_pred, y).to(device)
@@ -263,7 +263,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
             f"Train Accuracy: {epoch_accuracy:.4f}, Train Precision: {epoch_precision:.4f}, "
             f"Train Recall: {epoch_recall:.4f}, Train F1 Score: {epoch_f1:.4f}")
 
-        # Validation
+        # If validation, compute and report the main metrics on the validation set
         if validation:
             avg_val_loss, val_accuracy, val_f1, val_precision, val_recall = evaluate_model(model, val_loader, criterion, model_name, 'hateful_discussions', device)
             wandb.log({
@@ -279,16 +279,25 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 f"Val Accuracy: {val_accuracy:.4f}, Val Precision: {val_precision:.4f}, "
                 f"Val Recall: {val_recall:.4f}, Val F1 Score: {val_f1:.4f}")
             
-            # Update best validation loss and save checkpoint if needed
-            if avg_val_loss < best_val_loss:
-                best_val_loss = avg_val_loss
+            # Update best validation f1 score, best model and save checkpoint
+            if val_f1 > best_val_f1_score:
+                print("Replacing best validation f1 score from ", best_val_f1_score , " to ", val_f1)
+                best_val_f1_score = val_f1
+                best_model = model
+                trigger_times = 0
                 torch.save(model.state_dict(), model_check_path)
+            # Early stopping logic 
+            else:
+                trigger_times += 1
+                if trigger_times > patience:
+                    print('Early stopping!')
+                    break
     if not validation:
         torch.save(model.state_dict(), model_check_path)
 
     # Finally, evaluate on the test set and report all metrics
     print("Running evaluation ...")
-    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate_model(model, test_loader, criterion, model_name, 'hateful_discussions', device)
+    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate_model(best_model, test_loader, criterion, model_name, 'hateful_discussions', device)
     wandb.log({
         "test_loss": test_loss,
         "test_accuracy": test_accuracy,

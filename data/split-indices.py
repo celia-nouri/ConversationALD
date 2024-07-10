@@ -15,7 +15,8 @@ def print_x_rand_indices(input_file, out_file, x):
     in_lines = []
     with open(input_file, 'r') as infile:
         for idx, line in enumerate(infile):
-            in_lines.append(line)
+            if idx < 5200:
+                in_lines.append(line)
     
     random.shuffle(in_lines)
 
@@ -36,8 +37,8 @@ def call_split_lines():
 
 def call_print_x_rand():
     # Specify the file names
-    input_file = 'test-idx-only-many.txt'
-    out_file = 'test-idx-only-small-1000.txt'
+    input_file = 'train-idx-many.txt'
+    out_file = 'train-idx-small-1000.txt'
 
     print_x_rand_indices(input_file, out_file, 1000)
 

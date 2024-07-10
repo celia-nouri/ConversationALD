@@ -181,10 +181,11 @@ class GraphormerModel(FairseqEncoderModel):
 
 
 class GraphormerEncoder(FairseqEncoder):
-    def __init__(self, args, with_graph=False, device=None):
+    def __init__(self, args, with_graph=False, enable_images=True, device=None):
         super().__init__(dictionary=None)
         self.device = device
         self.with_graph = with_graph
+        self.enable_images = enable_images
         if with_graph:
             self.max_nodes = args.max_nodes
    
@@ -217,6 +218,7 @@ class GraphormerEncoder(FairseqEncoder):
             freeze_initial_encoders=args.freeze_initial_encoders,
             device=device,
             with_graph=with_graph,
+            enable_images=enable_images,
         )
 
         self.node_encoder_stack = nn.ModuleList(

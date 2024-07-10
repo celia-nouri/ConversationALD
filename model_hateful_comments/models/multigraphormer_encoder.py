@@ -72,10 +72,12 @@ class MultiGraphormerGraphEncoder(nn.Module):
         freeze_initial_encoders: bool = False,
         device=None,
         with_graph: bool = False,
+        enable_images: bool = True,
     ) -> None:
         super().__init__()
         self.device = device
         self.with_graph = with_graph
+        self.enable_images = enable_images
         self.dropout_module = FairseqDropout(
             dropout, module_name=self.__class__.__name__
         )
@@ -336,7 +338,7 @@ class MultiGraphormerGraphEncoder(nn.Module):
         n_graph = 1
         n_node = bert_output.size()[0]
 
-        if batched_data["x_images"] is not None:
+        if self.enable_images and batched_data["x_images"] is not None:
             vit_output = self.vit_model(
                 batched_data["x_images"]
             ).last_hidden_state # [num_images, 197, 768]
