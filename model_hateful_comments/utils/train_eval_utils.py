@@ -66,13 +66,18 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device):
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                     loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                 )
-            elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer":
+            elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model':
                 criterion = nn.CrossEntropyLoss()
                 loss = criterion(y_pred, y).to(device)
                 _, pred_label = torch.max(y_pred, dim=1)
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                     loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                 )
+            #elif model_name == 'gat-model':
+            #    y_pred = y_pred.squeeze(1)
+            #    loss = criterion(y_pred, y).to(device)
+            #    _, pred_label = torch.max(y_pred, dim=1)
+            #    running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels)
             else:
                 loss = criterion(y_pred, y).to(device)
                 # Accumulate loss, corrects, true and predicted labels 
@@ -104,7 +109,6 @@ def run_model_pred(model, data, model_name, dataset_name, device):
         elif dataset_name == "hateful_discussions":
             x = data.x
             x = x.to(device)
-
 
     elif model_name == "simple-graph":
         if dataset_name == "Palestine_convs_roberta":
@@ -156,6 +160,10 @@ def run_model_pred(model, data, model_name, dataset_name, device):
             y_pred, _ = model(data)
             y_pred = y_pred.to(device)
             y = data.y
+    elif model_name == 'gat-model':
+        y_pred = model(data)
+        y_pred = y_pred.to(device)
+        y = data.y.long()
 
     y = y.to(device)
     #y_pred = y_pred.to(device)
@@ -163,13 +171,7 @@ def run_model_pred(model, data, model_name, dataset_name, device):
 
 def update_running_metrics(loss, predicted_label, y, running_loss, running_corrects, true_labels, predicted_labels):
     running_loss += loss.item()
-    #threshold = 0.5  # Example threshold
-    # Ensure y_pred is a floating-point tensor
 
-    # Compute the predicted label using sigmoid and threshold    
-    #predicted_label = torch.tensor(1.0) if torch.sigmoid(y_pred).item() > threshold else torch.tensor(0.0)
-   
-    #only for fb hate roberta
     good_pred = False
     if float(predicted_label.item()) == float(y.item()):
         running_corrects += 1
@@ -190,7 +192,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
     best_val_f1_score = float('-inf')
     best_model = model 
     # Patience is the maximum number of epoch with decaying validation scores we will wait for, before early stopping the training
-    patience = 6
+    patience = 20
     trigger_times = 0
     # Generate a unique timestamp string
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -218,7 +220,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                     loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                 )
-            elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer':
+            elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model':
                 # Compute the loss
                 criterion = nn.CrossEntropyLoss()
                 loss = criterion(y_pred, y).to(device)
@@ -229,11 +231,15 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels)
             
             elif y_pred.shape == y.shape:
+                print('here y pred shape equal y shape')
                 y_pred = y_pred.to(device)
-                loss = criterion(y_pred, y).to(device)
+                criterion = nn.BCEWithLogitsLoss()
+                loss = criterion(y_pred, y) #.to(device)
+                print(f"Loss: {loss.item()}")
                 loss.backward()
                 optimizer.step()
                 # Update running metrics on training set 
+                print('running update metrics')
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
 
             else:

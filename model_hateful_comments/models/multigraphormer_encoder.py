@@ -270,7 +270,6 @@ class MultiGraphormerGraphEncoder(nn.Module):
         # bert_model = AutoModel.from_pretrained('microsoft/MiniLM-L12-H384-uncased')
         node_classifier = bert.classifier
         bert_dropout = bert.dropout
-        bert_model = bert_model
 
         # this has a pooler at the end
         return (
