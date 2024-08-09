@@ -4,10 +4,11 @@ from torch_geometric.data import Data
 import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoModel, DistilBertModel, RobertaModel, AutoModelForSequenceClassification
+from utils.construct_graph import get_graph
 
 from models.multimodal_transformer import GraphormerModel, GraphormerEncoder
 
-all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model"]
+all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test"]
 #var tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased', truncation=True, do_lower_case=True);
 
 # DistilBERT Classifier model 
@@ -217,7 +218,74 @@ class GATModel(torch.nn.Module):
         #out = self.bert_dropout(out)
         out = self.node_classifier(out)
         return out
+
+# New graph model
+class GATTest(torch.nn.Module):
+    def __init__(self, in_channels=768, hidden_channels=768, num_heads_1=8, num_heads_2=1, dropout_1=0.6, dropout_2=0.6):
+        super(GATTest, self).__init__()
+        #self.fc1 = nn.Linear(in_channels, hidden_channels)
+        self.gat1 = GATConv(in_channels, hidden_channels, heads=num_heads_1, dropout=dropout_1)
+        self.gat2 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_2)
+        self.fc = torch.nn.Linear(1536, 768)  # Output one value for binary classification
+        bert = AutoModelForSequenceClassification.from_pretrained(
+            "bert-base-uncased",
+            hidden_dropout_prob=0.2,
+            attention_probs_dropout_prob=0.2,
+        )
+        self.text_model = bert.bert
+        self.text_pooler = self.text_model.pooler
+        self.node_classifier = bert.classifier
+        self.bert_dropout = bert.dropout
     
+
+
+    def forward(self, data):   
+        # Save the original batch size
+        #batch_size = x.size(0)
+        graph = get_graph(data.x_text)
+        x = data.x
+        device = get_device()
+        #graph = get_graph()
+        edge_indices = data.edge_index.permute(1, 0)
+        mask = data["y_mask"]
+
+        # x["token_type_ids"] is [#comments, 100]
+        x_token_type_ids = x["token_type_ids"] # [#comments, 100]
+        x_attention_mask = x["attention_mask"] # [#comments, 100]
+        x_input_ids = x["input_ids"] # [#comments, 100]
+        bert_output = self.text_model(
+            token_type_ids=x_token_type_ids,
+            attention_mask=x_attention_mask,
+            input_ids=x_input_ids,
+        ).last_hidden_state # [#comments, 100, 768]
+
+        
+        g_data = Data(x=bert_output, edge_index=edge_indices.t().contiguous())
+        x, edge_indices = g_data.x, g_data.edge_index
+        x = x.to(device)
+        edge_indices = edge_indices.to(device)
+        cls_embeddings = bert_output[:, 0, :] 
+         # GAT layer 1
+        x = self.gat1(cls_embeddings, edge_indices)
+        x = F.elu(x)
+         # GAT layer 2
+        x = self.gat2(x, edge_indices)
+        x_gemb = x[mask, :]
+        x_emb = cls_embeddings[mask, :]
+
+        concat_out = torch.cat([x_gemb, x_emb], dim=1)
+
+        # SHAPE OF X: [#vertices, 768=input_dim] --> [#vertices, 64=hidden_dim] --> [#vertices, 1] --> [#vertices]
+        
+
+        # Classification layer (binary classification)
+        out = self.fc(concat_out) 
+        #out = self.text_pooler(out)
+        #out = self.bert_dropout(out)
+        out = self.node_classifier(out)
+        print('output of prediction: ', out)
+    
+        return out
 def get_model(args, model_name, hidden_channels=64, num_heads=1):
     assert model_name in all_model_names, "Invalid model name: {}".format(model_name)
     device = get_device()
@@ -248,6 +316,8 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
         model = GraphormerModel(args, encoder)
     elif model_name == 'gat-model':
         model = GATModel()
+    elif model_name == 'gat-test':
+        model = GATTest()
     model = model.to(device)
     return model
 
