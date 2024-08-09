@@ -5,6 +5,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from transformers import AutoModel, DistilBertModel, RobertaModel, AutoModelForSequenceClassification
 from utils.construct_graph import get_graph
+from torchsummary import summary
 
 from models.multimodal_transformer import GraphormerModel, GraphormerEncoder
 
@@ -168,6 +169,7 @@ class GATModel(torch.nn.Module):
             hidden_dropout_prob=0.2,
             attention_probs_dropout_prob=0.2,
         )
+        log_memory_usage()
         self.text_model = bert.bert
         self.text_pooler = self.text_model.pooler
         self.node_classifier = bert.classifier
@@ -178,6 +180,8 @@ class GATModel(torch.nn.Module):
     def forward(self, data):   
         # Save the original batch size
         #batch_size = x.size(0)
+        log_memory_usage()
+        print(data)
         x = data.x
         device = get_device()
         edge_indices = data.edge_index.permute(1, 0)
@@ -192,6 +196,7 @@ class GATModel(torch.nn.Module):
             attention_mask=x_attention_mask,
             input_ids=x_input_ids,
         ).last_hidden_state # [#comments, 100, 768]
+        log_memory_usage()
 
         
         g_data = Data(x=bert_output, edge_index=edge_indices.t().contiguous())
@@ -208,6 +213,7 @@ class GATModel(torch.nn.Module):
         x_emb = cls_embeddings[mask, :]
 
         concat_out = torch.cat([x_gemb, x_emb], dim=1)
+        log_memory_usage()
 
         # SHAPE OF X: [#vertices, 768=input_dim] --> [#vertices, 64=hidden_dim] --> [#vertices, 1] --> [#vertices]
         
@@ -289,8 +295,11 @@ class GATTest(torch.nn.Module):
 def get_model(args, model_name, hidden_channels=64, num_heads=1):
     assert model_name in all_model_names, "Invalid model name: {}".format(model_name)
     device = get_device()
+    log_memory_usage()
     # Instantiate your model
-    model = SimpleTextClassifier()
+    in_channels=768
+    model = ""
+
     if model_name == "simple-graph":
         model = SimpleGraphModel(in_channels=768, hidden_channels=hidden_channels, num_heads=num_heads)
     elif model_name == "distil-class":
@@ -318,7 +327,12 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
         model = GATModel()
     elif model_name == 'gat-test':
         model = GATTest()
+    else:
+        model = SimpleTextClassifier()
     model = model.to(device)
+    summary(model, (20, 768, 768))
+
+
     return model
 
 
@@ -334,4 +348,9 @@ def get_device():
         return device
     print("Using CPU")
     return device
-    
+
+def log_memory_usage():
+    allocated_memory = torch.cuda.memory_allocated() / (1024 ** 3)
+    reserved_memory = torch.cuda.memory_reserved() / (1024 ** 3)
+    print(f"Allocated Memory: {allocated_memory:.2f} GB")
+    print(f"Reserved Memory: {reserved_memory:.2f} GB")
