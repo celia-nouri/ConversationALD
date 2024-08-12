@@ -169,7 +169,6 @@ class GATModel(torch.nn.Module):
             hidden_dropout_prob=0.2,
             attention_probs_dropout_prob=0.2,
         )
-        log_memory_usage()
         self.text_model = bert.bert
         self.text_pooler = self.text_model.pooler
         self.node_classifier = bert.classifier
@@ -297,7 +296,6 @@ class GATTest(torch.nn.Module):
 def get_model(args, model_name, hidden_channels=64, num_heads=1):
     assert model_name in all_model_names, "Invalid model name: {}".format(model_name)
     device = get_device()
-    log_memory_usage()
     # Instantiate your model
     model = ""
 
