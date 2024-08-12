@@ -15,7 +15,7 @@ class HatefulDiscussions(Dataset):
         pre_transform: Optional[Callable] = None,
         pre_filter: Optional[Callable] = None,
     ):
-        self.num_labels = 18673 if size =='large' else 9533 if size =='medium' else 500 if size == 'small' else 6200
+        self.num_labels = 18673 if size =='large' or size == "cad" else 9533 if size =='medium' else 500 if size == 'small' else 6200
         self.k = 0
         super().__init__(root, transform, pre_transform, pre_filter)
 
@@ -95,7 +95,7 @@ class HatefulDiscussions(Dataset):
     
 
 def create_hatespeech_dataset(size='medium', validation=True):
-    assert size in ["small", "small-1000", "medium", "large"] 
+    assert size in ["small", "small-1000", "medium", "large", "cad"] 
     # Set SLURM_TMPDIR
     os.environ['SLURM_TMPDIR'] = "/Users/celianouri/Stage24/HatefulDiscussionsModeling/data"
     dataset = HatefulDiscussions(size, root="processed_graphs")
@@ -107,6 +107,9 @@ def create_hatespeech_dataset(size='medium', validation=True):
     if size == "small-1000":
         train_filename = path + "/train-idx-small-1000.txt"  
         test_filename = path + "/test-idx-only-small-1000.txt"
+    if size == "cad":
+        train_filename = path + "/cad-train-idx-many.txt"
+        test_filename = path + "/cad-test-idx-many.txt"
     with open(train_filename, "r") as file:
         for line in file:
             train_idx.append(int(line[:-1]))
@@ -118,6 +121,9 @@ def create_hatespeech_dataset(size='medium', validation=True):
         if size == "small-1000":
             val_filename = path + "/val-idx-small-1000.txt"  
             test_filename = path + "/test-idx-small-1000.txt"
+        if size == "cad":
+            val_filename = path + "/cad-val-idx-many.txt"
+            test_filename = path + "/cad-test-idx-many.txt"
         with open(val_filename, "r") as file:
             for line in file:
                 val_idx.append(int(line[:-1]))

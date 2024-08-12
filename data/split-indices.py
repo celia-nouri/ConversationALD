@@ -1,5 +1,20 @@
 import random
 
+def split_train_test_val(all_file, train_file, val_file, test_file):
+    with open(all_file, 'r') as infile, \
+         open(train_file, 'w') as train_outfile, \
+         open(val_file, 'w') as val_outfile, \
+         open(test_file, 'w') as test_outfile:
+        
+        for idx, line in enumerate(infile):
+            if idx % 10 < 8:  # 80% of lines
+                train_outfile.write(line)
+            elif idx % 10 == 8:  # 10% of lines
+                val_outfile.write(line)
+            else:  # 10% of lines
+                test_outfile.write(line)
+            
+
 def split_lines(input_file, val_file, test_file):
     with open(input_file, 'r') as infile, \
          open(val_file, 'w') as val_outfile, \
@@ -44,4 +59,5 @@ def call_print_x_rand():
 
 
 if __name__ == "__main__":
-    call_print_x_rand()
+    #call_print_x_rand()
+    split_train_test_val('cad_idx.txt', 'cad-train-idx-many.txt', 'cad-val-idx-many.txt', 'cad-test-idx-many.txt')

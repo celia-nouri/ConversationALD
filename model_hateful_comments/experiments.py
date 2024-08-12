@@ -19,7 +19,7 @@ def run_experiments(args):
     learning_rate = args.lr
     assert validation in [True, False], "Invalid validation setting: {}".format(validation)
     assert model_name in all_model_names, "Invalid model name: {}".format(model_name)
-    assert size in ["small", "small-1000", "medium", "large"], "Invalid size setting: {}".format(size)
+    assert size in ["small", "small-1000", "medium", "large", "cad"], "Invalid size setting: {}".format(size)
     if model_name == "multimodal-transformer":
         args.with_graph = True
     else:
@@ -62,7 +62,7 @@ if __name__ == "__main__":
     models_string = json.dumps(all_model_names)
     parser.add_argument('--model', type=str, default='gat-model', help='the model to use, can take one of the following values: ' + models_string)
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
-    parser.add_argument('--size', type=str, default='small', help='the size of the dataset, can take one of the following values: ["small", "medium", "large"]')
+    parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
     parser.add_argument('--validation', type=bool, default=True, help='rather or not to use a validation set for model tuning')
     parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
     parser.add_argument('--lr', type=float, default=2e-5, metavar='E', help='learning rate')
