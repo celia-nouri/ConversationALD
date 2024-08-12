@@ -180,8 +180,6 @@ class GATModel(torch.nn.Module):
     def forward(self, data):   
         # Save the original batch size
         #batch_size = x.size(0)
-        log_memory_usage()
-        print(data)
         x = data.x
         device = get_device()
         edge_indices = data.edge_index.permute(1, 0)
@@ -196,8 +194,6 @@ class GATModel(torch.nn.Module):
             attention_mask=x_attention_mask,
             input_ids=x_input_ids,
         ).last_hidden_state # [#comments, 100, 768]
-        log_memory_usage()
-
         
         g_data = Data(x=bert_output, edge_index=edge_indices.t().contiguous())
         x, edge_indices = g_data.x, g_data.edge_index
@@ -213,8 +209,6 @@ class GATModel(torch.nn.Module):
         x_emb = cls_embeddings[mask, :]
 
         concat_out = torch.cat([x_gemb, x_emb], dim=1)
-        log_memory_usage()
-
         # SHAPE OF X: [#vertices, 768=input_dim] --> [#vertices, 64=hidden_dim] --> [#vertices, 1] --> [#vertices]
         
 
@@ -330,8 +324,6 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
     else:
         model = SimpleTextClassifier()
     model = model.to(device)
-    summary(model, (20, 768, 768))
-
 
     return model
 
