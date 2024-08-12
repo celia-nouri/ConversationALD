@@ -32,10 +32,22 @@ def get_sentiment_features(x):
   return x
 
 
-def temporal_feature(x):
-  return x
+def temporal_edges(temporal_info, depths, vid2num):
+  reversed_depths = {}
+  for vertex_id, depth_info in depths.items():
+    depth, parent_id = depth_info
+    vertex_num = vid2num[vertex_id]
+    new_key = str(depth) + '+' + parent_id
+    reversed_depths.setdefault(new_key, []).append(vertex_num)
+  
+  for depth, vertex_nums in enumerate(reversed_depths):
+    if len(vertex_nums) > 1:
+      # Zip indices and timestamps, sort by timestamp, and extract sorted indices
+      sorted_nums = [index for index, _ in sorted(zip(vertex_nums, temporal_info), key=lambda x: x[1])]
+      edge_list = [(sorted_nums[i], sorted_nums[i+1]) for i in range(len(sorted_nums) - 2)]
+  return edge_list
 
-def get_graph(x):
+def get_graph(x, with_temporal_edges=False):
   posts_ids, nodes, relations, depths, edge_list, vid2num, vnum2id, temporal_info  = preprocess(x)
   vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
   print('edge dic ', edges_dic)
@@ -44,6 +56,8 @@ def get_graph(x):
   print('depth list ', depths)
   print('vid2num ', vid2num)
   print('vnum2id ', vnum2id)
+  if with_temporal_edges:
+    tempo_edges = add_temporal_edges(temporal_info, depths, vid2num)
   return x
 
 
@@ -73,7 +87,7 @@ def preprocess(conversation):
     
       nodes[key] = x
       posts_ids.append(key)
-      depths[key] = 0
+      depths[key] = (0, "")
       '''
       The keys of post object:
         ['archived', 'author', 'author_flair_css_class', 'author_flair_text', 'brand_safe', 
@@ -103,13 +117,13 @@ def preprocess(conversation):
       else:
         relations[parent_id] = [key]
       if parent_id in depths.keys():
-        parent_depth = depths[parent_id]
+        parent_depth, _ = depths[parent_id]
         if key in depths.keys():
           print('error the child key depth was already populated')
-        depths[key] = parent_depth + 1
+        depths[key] = (parent_depth + 1, parent_id)
       else:
         print('error the parent depth was not filled in the dict...')
-        edge_list.append((vertex_id_to_num(parent_id), vertex_id_to_num(key)))
+      edge_list.append((vertex_id_to_num(parent_id), vertex_id_to_num(key)))
 
   return posts_ids, nodes, relations, depths, edge_list, vertex_id_to_num, vertex_num_to_id, temporal_info
 
