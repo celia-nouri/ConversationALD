@@ -33,35 +33,58 @@ def get_sentiment_features(x):
 
 
 def temporal_edges(temporal_info, depths, vid2num):
+  temporal_edges = {}
   reversed_depths = {}
   for vertex_id, depth_info in depths.items():
-    depth, parent_id = depth_info
+    depth, parent_id, root_id = depth_info
     vertex_num = vid2num[vertex_id]
-    new_key = str(depth) + '+' + parent_id
+    new_key = str(depth) + '+' + parent_id + '+' + root_id
     reversed_depths.setdefault(new_key, []).append(vertex_num)
   
-  for depth, vertex_nums in enumerate(reversed_depths):
+  for depth_key in reversed_depths.keys():
+    depth, parent_id, root_id = depth_key.split('+')
+    vertex_nums = reversed_depths[depth_key]
     if len(vertex_nums) > 1:
       # Zip indices and timestamps, sort by timestamp, and extract sorted indices
       sorted_nums = [index for index, _ in sorted(zip(vertex_nums, temporal_info), key=lambda x: x[1])]
-      edge_list = [(sorted_nums[i], sorted_nums[i+1]) for i in range(len(sorted_nums) - 2)]
-  return edge_list
+      edge_list = [(sorted_nums[i], sorted_nums[i+1]) for i in range(len(sorted_nums) - 1)]
+      temporal_edges.setdefault(root_id, []).extend(edge_list)
+  return temporal_edges
 
-def get_graph(x, with_temporal_edges=False):
-  posts_ids, nodes, relations, depths, edge_list, vid2num, vnum2id, temporal_info  = preprocess(x)
-  vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
-  print('edge dic ', edges_dic)
-  print('relations ', relations)
-  print('edge list ', edge_list)
-  print('depth list ', depths)
-  print('vid2num ', vid2num)
-  print('vnum2id ', vnum2id)
+def get_graph(x, with_temporal_edges=False, undirected=False):
+  posts_ids, nodes, relations, depths, edge_list, vid2num, vnum2id, temporal_info  = preprocess(x, undirected)
+  #vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
+  #edges_dic_num = convert_to_num(edges_dic, vid2num)
+  if len(posts_ids) ==  1:
+    edges_dic_num = {posts_ids[0]: edge_list}
+  # dictionaries with key = root, value = vertex/edge list
+
   if with_temporal_edges:
-    tempo_edges = add_temporal_edges(temporal_info, depths, vid2num)
-  return x
+    tempo_edges = temporal_edges(temporal_info, depths, vid2num)
+    edges_dic_num = merge_dictionaries(edges_dic_num, tempo_edges)
+    #edge_list = list(set(edge_list + tempo_edges))
+  return nodes, edges_dic_num
+
+def convert_to_num(edges_dic, vid2num):
+  edges_dic_num = {}
+  for root_id, edge_list in edges_dic.items():
+    edges_num = []
+    for edge in edge_list:
+      edge1, edge2 = edge
+      edges_num.append((vid2num[edge1], vid2num[edge2]))
+    edges_dic_num[root_id] = edges_num
+  return edges_dic_num
+def merge_dictionaries(dict1, dict2):
+    keys = set(dict1) | set(dict2)
+    merged_dict = {
+        key: list(set(dict1.get(key, []) + dict2.get(key, [])))
+        for key in keys
+    }
+    return merged_dict
 
 
-def preprocess(conversation):
+def preprocess(conversation, undirected=False):
+  edge_set = set()
   nodes = {}
   relations = {}
   posts_ids = []
@@ -84,10 +107,10 @@ def preprocess(conversation):
       next_vertex += 1
     
     if i == 0: #initial post 
-    
       nodes[key] = x
       posts_ids.append(key)
-      depths[key] = (0, "")
+      # set depths dict to (depth, parent_id, root_id)
+      depths[key] = (0, "", key)
       '''
       The keys of post object:
         ['archived', 'author', 'author_flair_css_class', 'author_flair_text', 'brand_safe', 
@@ -117,14 +140,17 @@ def preprocess(conversation):
       else:
         relations[parent_id] = [key]
       if parent_id in depths.keys():
-        parent_depth, _ = depths[parent_id]
+        parent_depth, _, my_root = depths[parent_id]
         if key in depths.keys():
           print('error the child key depth was already populated')
-        depths[key] = (parent_depth + 1, parent_id)
+        depths[key] = (parent_depth + 1, parent_id, my_root)
       else:
         print('error the parent depth was not filled in the dict...')
-      edge_list.append((vertex_id_to_num(parent_id), vertex_id_to_num(key)))
-
+      edge_set.add((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
+      if undirected: # add revert edges
+        edge_set.add((vertex_id_to_num[key], vertex_id_to_num[parent_id]))
+        #edge_list.append((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
+  edge_list = list(edge_set)
   return posts_ids, nodes, relations, depths, edge_list, vertex_id_to_num, vertex_num_to_id, temporal_info
 
 
@@ -135,6 +161,7 @@ def get_value(obj, key):
         return ""
 
 
+# Doesn't work .. 
 def create_edges(parents, relations):
     edges = []
     if not parents:
@@ -165,5 +192,4 @@ def create_graphs(roots, nodes, relations):
         all_vertices[root] = vertices
         all_edges[root] = edges
     return all_vertices, all_edges
-
 

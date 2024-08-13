@@ -100,7 +100,6 @@ def run_model_pred(model, data, model_name, dataset_name, device):
     y_pred = torch.zeros((1, 1))
     data = data.to(device)
 
-
     if model_name == "text-class":
         if dataset_name == "Palestine_convs_roberta":
             x, y, _, _ = data

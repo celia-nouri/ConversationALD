@@ -27,7 +27,6 @@ class HatefulDiscussions(Dataset):
     @property
     def processed_file_names(self):
         path = os.path.expandvars("$SLURM_TMPDIR/processed_graphs/processed")
-        print("Processed file names :", path)
         # TODO: this will be the total number of labels in the dataset, will have to update manually
         return [path + f"/graph-{i}.pt" for i in range(self.num_labels)]
     def len(self):
@@ -91,7 +90,6 @@ class HatefulDiscussions(Dataset):
 
     def get(self, idx):
         path = self.processed_file_names[idx]
-        print("get :", path)
         a = torch.load(path)
         return a
     
@@ -99,7 +97,9 @@ class HatefulDiscussions(Dataset):
 def create_hatespeech_dataset(size='medium', validation=True):
     assert size in ["small", "small-1000", "medium", "large", "cad"] 
     # Set SLURM_TMPDIR
-    os.environ['SLURM_TMPDIR'] = "/home/cnouri/HatefulDiscussionsModeling/data"
+    # Switch to the right directory, depending on local or CLEPS
+    #os.environ['SLURM_TMPDIR'] = "/home/cnouri/HatefulDiscussionsModeling/data"
+    os.environ['SLURM_TMPDIR'] = "/Users/celianouri/Stage24/HatefulDiscussionsModeling/data"
     dataset = HatefulDiscussions(size, root="processed_graphs")
 
     path = os.path.expandvars("$SLURM_TMPDIR")

@@ -242,12 +242,20 @@ class GATTest(torch.nn.Module):
     def forward(self, data):   
         # Save the original batch size
         #batch_size = x.size(0)
-        graph = get_graph(data.x_text)
-        x = data.x
+        _, edges_dic_num = get_graph(data.x_text, with_temporal_edges=False, undirected=True)
+        assert len(edges_dic_num.keys()) <= 1, "length of edges dic num is greater than 1"
+        edge_list = []
         device = get_device()
-        #graph = get_graph()
-        edge_indices = data.edge_index.permute(1, 0)
+        for k in edges_dic_num.keys():
+            edge_list = edges_dic_num[k]
+            edge_list = sorted(edge_list, key=lambda x: (x[0], x[1]))
+            edge_list = torch.tensor(edge_list).to(device)
+        x = data.x
+        #edge_indices = data.edge_index.permute(1, 0)
         mask = data["y_mask"]
+        #are_equal = torch.equal(edge_list, edge_indices)
+        #print(f"Are the tensors equal? {are_equal}")
+        # YES. The undirected option without temporal edges is equal to edge_indices (the edge list returned by the mDT codebase.)
 
         # x["token_type_ids"] is [#comments, 100]
         x_token_type_ids = x["token_type_ids"] # [#comments, 100]
@@ -260,10 +268,10 @@ class GATTest(torch.nn.Module):
         ).last_hidden_state # [#comments, 100, 768]
 
         
-        g_data = Data(x=bert_output, edge_index=edge_indices.t().contiguous())
-        x, edge_indices = g_data.x, g_data.edge_index
+        g_data = Data(x=bert_output, edge_index=edge_list.t().contiguous())
+        x, edge_list = g_data.x, g_data.edge_index
         x = x.to(device)
-        edge_indices = edge_indices.to(device)
+        edge_indices = edge_list.to(device)
         cls_embeddings = bert_output[:, 0, :] 
          # GAT layer 1
         x = self.gat1(cls_embeddings, edge_indices)
@@ -291,7 +299,6 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
     device = get_device()
     log_memory_usage()
     # Instantiate your model
-    in_channels=768
     model = ""
 
     if model_name == "simple-graph":
