@@ -290,7 +290,7 @@ class GATTest(torch.nn.Module):
         #out = self.text_pooler(out)
         #out = self.bert_dropout(out)
         out = self.node_classifier(out)
-        print('output of prediction: ', out)
+        #print('output of prediction: ', out)
     
         return out
 def get_model(args, model_name, hidden_channels=64, num_heads=1):
