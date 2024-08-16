@@ -2,16 +2,15 @@
 
 # Launch SLURM parameters
 
-#SBATCH --cpus-per-gpu=8        # Number of cpus per GPU card (>1 if multi-threaded tasks)
-#SBATCH --partition=almanach        # Name of the partition
-#SBATCH --account=almanach
-#SBATCH --gres=gpu:rtx8000:2    # Number and type of GPU cards and type allocated
-#SBATCH --mem=20G                # Total memory allocated
-#SBATCH --time=12:45:00 # total run time limit (HH:MM:SS)
+#SBATCH --cpus-per-gpu=16        # Number of cpus per GPU card (>1 if multi-threaded tasks)
+#SBATCH --partition=gpu        # Name of the partition
+#SBATCH --gres=gpu:rtx8000:3    # Number and type of GPU cards and type allocated
+#SBATCH --mem=64G                # Total memory allocated
+#SBATCH --time=48:00:00 # total run time limit (HH:MM:SS)
 #SBATCH --output=%x_%j.out       # output file name
+#SBATCH --mem=0  # Request all available memory on the node
 
-
-#SBATCH --job-name=hd_experiment    # create a short name for your job
+#SBATCH --job-name=undir-notemp-cad-gat-test    # create a short name for your job
 #SBATCH --hint=multithread       # we get physical cores not logical
 
 

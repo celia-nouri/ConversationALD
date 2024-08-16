@@ -32,7 +32,8 @@ def get_sentiment_features(x):
   return x
 
 
-def temporal_edges(temporal_info, depths, vid2num):
+def temporal_edges(temporal_info, depths, vid2num, undirected=False):
+  
   temporal_edges = {}
   reversed_depths = {}
   for vertex_id, depth_info in depths.items():
@@ -47,12 +48,17 @@ def temporal_edges(temporal_info, depths, vid2num):
     if len(vertex_nums) > 1:
       # Zip indices and timestamps, sort by timestamp, and extract sorted indices
       sorted_nums = [index for index, _ in sorted(zip(vertex_nums, temporal_info), key=lambda x: x[1])]
-      edge_list = [(sorted_nums[i], sorted_nums[i+1]) for i in range(len(sorted_nums) - 1)]
-      temporal_edges.setdefault(root_id, []).extend(edge_list)
+      edge_set = set()
+      for i in range(len(sorted_nums) - 1):
+        edge_set.add((sorted_nums[i], sorted_nums[i+1]))
+        if undirected:
+          edge_set.add((sorted_nums[i+1], sorted_nums[i]))
+      temporal_edges.setdefault(root_id, []).extend(list(edge_set))
+
   return temporal_edges
 
 def get_graph(x, with_temporal_edges=False, undirected=False):
-  posts_ids, nodes, relations, depths, edge_list, vid2num, vnum2id, temporal_info  = preprocess(x, undirected)
+  posts_ids, nodes, relations, depths, edge_list, vid2num, vnum2id, temporal_info, num_nodes  = preprocess(x, undirected)
   #vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
   #edges_dic_num = convert_to_num(edges_dic, vid2num)
   if len(posts_ids) ==  1:
@@ -60,10 +66,52 @@ def get_graph(x, with_temporal_edges=False, undirected=False):
   # dictionaries with key = root, value = vertex/edge list
 
   if with_temporal_edges:
-    tempo_edges = temporal_edges(temporal_info, depths, vid2num)
+    tempo_edges = temporal_edges(temporal_info, depths, vid2num, undirected)
     edges_dic_num = merge_dictionaries(edges_dic_num, tempo_edges)
     #edge_list = list(set(edge_list + tempo_edges))
   return nodes, edges_dic_num
+
+def get_hetero_graph(x, with_temporal_edges=False, undirected=False):
+  posts_ids, comments_nodes, relations, depths, comments_edge_list, vid2num, vnum2id, temporal_info, num_comment_nodes  = preprocess(x, undirected)
+  #vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
+  #edges_dic_num = convert_to_num(edges_dic, vid2num)
+  if len(posts_ids) ==  1:
+    edges_dic_num = {posts_ids[0]: edge_list}
+  # dictionaries with key = root, value = vertex/edge list
+
+  if with_temporal_edges:
+    tempo_edges = temporal_edges(temporal_info, depths, vid2num, undirected)
+    edges_dic_num = merge_dictionaries(edges_dic_num, tempo_edges)
+    #edge_list = list(set(edge_list + tempo_edges))
+  user_to_comments_edges, num_users, user_id2num = get_user_graphs(x, vid2num, undirected)
+  return num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges
+
+def get_user_graphs(conversation, comments_id2num):
+  edge_list = []
+  next_vertex = 0
+  user_id2num = {}
+
+  for i, comment_obj in enumerate(conversation):
+    x, _, _, _ = comment_obj
+    comment_id = x['id']
+    comment_num = -1
+    if comment_id in comments_id2num.keys():
+      comment_num = comments_id2num[comment_id]
+    else:
+      print('comment id ', comment_id, ' is not in comment_id2num dic. This should not be happening...')
+    user_id = x['author']
+    if user_id in user_id2num.keys():
+      user_num = user_id2num[user_id]
+    else:
+      user_id2num[user_id] = next_vertex
+      next_vertex += 1
+    if comment_num != -1:
+      edge_list.append((user_num, comment_num))
+  edge_list = sorted(edge_list, key=lambda x: (x[0], x[1]))
+  return edge_list, next_vertex, user_id2num
+
+  
+
 
 def convert_to_num(edges_dic, vid2num):
   edges_dic_num = {}
@@ -151,7 +199,7 @@ def preprocess(conversation, undirected=False):
         edge_set.add((vertex_id_to_num[key], vertex_id_to_num[parent_id]))
         #edge_list.append((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
   edge_list = list(edge_set)
-  return posts_ids, nodes, relations, depths, edge_list, vertex_id_to_num, vertex_num_to_id, temporal_info
+  return posts_ids, nodes, relations, depths, edge_list, vertex_id_to_num, vertex_num_to_id, temporal_info, next_vertex
 
 
 def get_value(obj, key):
