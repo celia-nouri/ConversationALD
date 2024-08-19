@@ -28,8 +28,6 @@ label:  NA
 
 """
 
-import error
-
 def get_sentiment_features(x):
   return x
 
@@ -80,7 +78,7 @@ def get_hetero_graph(x, with_temporal_edges=False):
     comments_edges_dic_num = {posts_ids[0]: comments_edge_list}
   # dictionaries with key = root, value = vertex/edge list
   else:
-    error.err("error: there is more than one post id in a graph: ", posts_ids)
+    raise ValueError("error: there is more than one post id in a graph: ", posts_ids)
 
   if with_temporal_edges:
     tempo_edges = temporal_edges(temporal_info, depths, vid2num)
@@ -101,13 +99,14 @@ def get_user_graphs(conversation, comments_id2num):
     if comment_id in comments_id2num.keys():
       comment_num = comments_id2num[comment_id]
     else:
-      error.err('error: comment id ', comment_id, ' is not in comment_id2num dic. This should not be happening...')
+      raise ValueError('error: comment id ', comment_id, ' is not in comment_id2num dic. This should not be happening...')
     user_id = x['author']
     user_num = -1
     if user_id in user_id2num.keys():
       user_num = user_id2num[user_id]
     else:
       user_id2num[user_id] = next_vertex
+      user_num = user_id2num[user_id]
       next_vertex += 1
     if comment_num != -1 and user_num != -1:
       edge_list.append((user_num, comment_num))
@@ -149,7 +148,7 @@ def preprocess(conversation, undirected=False):
     x, _, _, _ = comment_obj
     key = x['id']
     if key in vertex_id_to_num:
-      error.err("Error, the vertex id ", key, " was already present in the id to num dictionnary")
+      raise RuntimeError("Error, the vertex id ", key, " was already present in the id to num dictionnary")
     else: 
       vertex_id_to_num[key] = next_vertex
       vertex_num_to_id.append(key)
@@ -192,10 +191,10 @@ def preprocess(conversation, undirected=False):
       if parent_id in depths.keys():
         parent_depth, _, my_root = depths[parent_id]
         if key in depths.keys():
-          error.err('error the child key depth was already populated')
+          raise RuntimeError('error the child key depth was already populated')
         depths[key] = (parent_depth + 1, parent_id, my_root)
       else:
-        error.err('error the parent depth was not filled in the dict...')
+        RuntimeError('error the parent depth was not filled in the dict...')
       edge_set.add((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
       if undirected: # add revert edges
         edge_set.add((vertex_id_to_num[key], vertex_id_to_num[parent_id]))
