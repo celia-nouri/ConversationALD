@@ -1,6 +1,6 @@
 import torch
 import torch_geometric.transforms as T
-from torch_geometric.nn import RGCNConv, GraphConv, GATConv
+from torch_geometric.nn import RGCNConv, GraphConv, GATConv, to_hetero
 from torch_geometric.data import Data, HeteroData
 import torch.nn as nn
 import torch.nn.functional as F
@@ -10,7 +10,7 @@ from torchsummary import summary
 
 from models.multimodal_transformer import GraphormerModel, GraphormerEncoder
 
-all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test"]
+all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test", "hetero-graph"]
 #var tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased', truncation=True, do_lower_case=True);
 
 # DistilBERT Classifier model 
@@ -176,7 +176,6 @@ class GATModel(torch.nn.Module):
         self.bert_dropout = bert.dropout
     
 
-
     def forward(self, data):   
         # Save the original batch size
         #batch_size = x.size(0)
@@ -221,7 +220,7 @@ class GATModel(torch.nn.Module):
 
 # New graph model
 class GATTest(torch.nn.Module):
-    def __init__(self, in_channels=768, hidden_channels=768, num_heads_1=8, num_heads_2=1, dropout_1=0.6, dropout_2=0.6):
+    def __init__(self, in_channels=768, hidden_channels=768, num_heads_1=8, num_heads_2=1, dropout_1=0.6, dropout_2=0.6, undirected=True, temp_edges=False):
         super(GATTest, self).__init__()
         #self.fc1 = nn.Linear(in_channels, hidden_channels)
         self.gat1 = GATConv(in_channels, hidden_channels, heads=num_heads_1, dropout=dropout_1)
@@ -236,13 +235,15 @@ class GATTest(torch.nn.Module):
         self.text_pooler = self.text_model.pooler
         self.node_classifier = bert.classifier
         self.bert_dropout = bert.dropout
+        self.undirected = undirected
+        self.temp_edges = temp_edges
     
 
 
     def forward(self, data):   
         # Save the original batch size
         #batch_size = x.size(0)
-        _, edges_dic_num = get_graph(data.x_text, with_temporal_edges=False, undirected=False)
+        _, edges_dic_num = get_graph(data.x_text, with_temporal_edges=self.temp_edges, undirected=self.undirected)
         assert len(edges_dic_num.keys()) <= 1, "length of edges dic num is greater than 1"
         edge_list = []
         device = get_device()
@@ -257,7 +258,6 @@ class GATTest(torch.nn.Module):
         #print(f"Are the tensors equal? {are_equal}")
         # YES. The undirected option without temporal edges is equal to edge_indices (the edge list returned by the mDT codebase.)
 
-        # x["token_type_ids"] is [#comments, 100]
         x_token_type_ids = x["token_type_ids"] # [#comments, 100]
         x_attention_mask = x["attention_mask"] # [#comments, 100]
         x_input_ids = x["input_ids"] # [#comments, 100]
@@ -294,12 +294,30 @@ class GATTest(torch.nn.Module):
         return out
 
 
-class HeteroGAT(torch.nn.Module):
+
+# graphModel is the internal graph network used by both heterogenous and homogenous graph models.
+class graphModel(torch.nn.Module):
     def __init__(self, in_channels=768, hidden_channels=768, num_heads_1=8, num_heads_2=1, dropout_1=0.6, dropout_2=0.6):
-        super(HeteroGAT, self).__init__()
+        super(graphModel, self).__init__()
         #self.fc1 = nn.Linear(in_channels, hidden_channels)
-        self.gat1 = GATConv(in_channels, hidden_channels, heads=num_heads_1, dropout=dropout_1)
-        self.gat2 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_2)
+        self.gat1 = GATConv(in_channels, hidden_channels, heads=num_heads_1, dropout=dropout_1, add_self_loops=False)
+        self.gat2 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_2, add_self_loops=False)
+
+    def forward(self, x, edge_list):   
+        device = get_device()
+        x = x.to(device)
+        edge_indices = edge_list.to(device)
+         # GAT layer 1
+        x = self.gat1(x, edge_indices)
+        x = F.elu(x)
+         # GAT layer 2
+        x = self.gat2(x, edge_indices)
+        return x
+
+
+class HeteroGAT(torch.nn.Module):
+    def __init__(self, model=GATTest, in_channels=768, hidden_channels=768, num_heads_1=8, num_heads_2=1, dropout_1=0.6, dropout_2=0.6, undirected=True, temp_edges=False):
+        super(HeteroGAT, self).__init__()
         self.fc = torch.nn.Linear(1536, 768)  # Output one value for binary classification
         bert = AutoModelForSequenceClassification.from_pretrained(
             "bert-base-uncased",
@@ -310,31 +328,40 @@ class HeteroGAT(torch.nn.Module):
         self.text_pooler = self.text_model.pooler
         self.node_classifier = bert.classifier
         self.bert_dropout = bert.dropout
-    
+        self.undirected = undirected
+        self.temp_edges = temp_edges
 
+        self.graph_model = graphModel()
 
     def forward(self, data):   
-        # Save the original batch size
-        #batch_size = x.size(0)
-        num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges = get_hetero_graph(data.x_text, with_temporal_edges=True, undirected=False)
-
-
+        device = get_device()
+        mask = data["y_mask"]
+        num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges = get_hetero_graph(data.x_text, with_temporal_edges=self.temp_edges)
+        user_to_comments_edges = torch.tensor(user_to_comments_edges, dtype=torch.long).permute(1,0).to(device)
         hetero_graph = HeteroData()
 
         # Add node indices:
-        hetero_graph["comments"].node_id = torch.arange(num_comment_nodes)
-        hetero_graph["users"].node_id = torch.arange(num_users)
+        hetero_graph["comment"].node_id = torch.arange(num_comment_nodes)
+        hetero_graph["user"].node_id = torch.arange(num_users)
 
         # Add edge indices:
-        hetero_graph["users", "post", "comments"].edge_index = user_to_comments_edges
-        hetero_graph["comments", "reply", "comments"].edge_index = comments_edge_list
+        hetero_graph["user", "posts", "comment"].edge_index = user_to_comments_edges #.t().contiguous()
+        assert len(comments_edges_dic_num.keys()) == 1, "There should be only one dictionary key"
+        comments_edge_list = []
+        for k in comments_edges_dic_num.keys():
+            comments_edge_list = comments_edges_dic_num[k]
+            comments_edge_list = sorted(comments_edge_list, key=lambda x: (x[0], x[1]))
+            comments_edge_list = torch.tensor(comments_edge_list, dtype=torch.long).permute(1,0).to(device)
 
+        hetero_graph["comment", "replies", "comment"].edge_index = comments_edge_list #.t().contiguous()
+  
         # We also need to make sure to add the reverse edges from movies to users
         # in order to let a GNN be able to pass messages in both directions.
         # We can leverage the `T.ToUndirected()` transform for this from PyG:
-        if undirected:
+        if self.undirected:
             hetero_graph = T.ToUndirected()(hetero_graph)
-
+        print(hetero_graph)
+        x = data.x
         x_token_type_ids = x["token_type_ids"] # [#comments, 100]
         x_attention_mask = x["attention_mask"] # [#comments, 100]
         x_input_ids = x["input_ids"] # [#comments, 100]
@@ -344,72 +371,30 @@ class HeteroGAT(torch.nn.Module):
             input_ids=x_input_ids,
         ).last_hidden_state # [#comments, 100, 768]
         # Add node features
-        hetero_graph["comments"].x = bert_output
-
-        print(hetero_graph)
-
-
-        
-        g_data = Data(x=bert_output, edge_index=edge_list.t().contiguous())
-
-
-        assert len(edges_dic_num.keys()) <= 1, "length of edges dic num is greater than 1"
-        edge_list = []
-        device = get_device()
-        for k in edges_dic_num.keys():
-            edge_list = edges_dic_num[k]
-            edge_list = sorted(edge_list, key=lambda x: (x[0], x[1]))
-            edge_list = torch.tensor(edge_list).to(device)
-        x = data.x
-        #edge_indices = data.edge_index.permute(1, 0)
-        mask = data["y_mask"]
-        #are_equal = torch.equal(edge_list, edge_indices)
-        #print(f"Are the tensors equal? {are_equal}")
-        # YES. The undirected option without temporal edges is equal to edge_indices (the edge list returned by the mDT codebase.)
-
-        # x["token_type_ids"] is [#comments, 100]
-        x_token_type_ids = x["token_type_ids"] # [#comments, 100]
-        x_attention_mask = x["attention_mask"] # [#comments, 100]
-        x_input_ids = x["input_ids"] # [#comments, 100]
-        bert_output = self.text_model(
-            token_type_ids=x_token_type_ids,
-            attention_mask=x_attention_mask,
-            input_ids=x_input_ids,
-        ).last_hidden_state # [#comments, 100, 768]
-
-        
-        g_data = Data(x=bert_output, edge_index=edge_list.t().contiguous())
-        x, edge_list = g_data.x, g_data.edge_index
-        x = x.to(device)
-        edge_indices = edge_list.to(device)
+        hetero_graph["comment"].x = bert_output[:, 0, :] 
         cls_embeddings = bert_output[:, 0, :] 
-         # GAT layer 1
-        x = self.gat1(cls_embeddings, edge_indices)
-        x = F.elu(x)
-         # GAT layer 2
-        x = self.gat2(x, edge_indices)
-        x_gemb = x[mask, :]
-        x_emb = cls_embeddings[mask, :]
+        # must be the same feature size for each node type
+        hetero_graph["user"].x = torch.ones((num_users, 768))
+        #TODO: add scores as edge features
+    
+        hetero_graph = hetero_graph.to(device, non_blocking=True)
 
+        model = to_hetero(self.graph_model, hetero_graph.metadata(), aggr='sum')
+
+        x = model(hetero_graph.x_dict, hetero_graph.edge_index_dict)
+        print("after model prediction, got ", x)
+        comments = x['comment']
+        x_gemb = comments[mask, :]
+        x_emb = cls_embeddings[mask, :]
         concat_out = torch.cat([x_gemb, x_emb], dim=1)
 
         # SHAPE OF X: [#vertices, 768=input_dim] --> [#vertices, 64=hidden_dim] --> [#vertices, 1] --> [#vertices]
         
-
         # Classification layer (binary classification)
         out = self.fc(concat_out) 
-        #out = self.text_pooler(out)
-        #out = self.bert_dropout(out)
         out = self.node_classifier(out)    
         return out
-
-
-
-
-
-get_hetero_graph
-
-
+        
 def get_model(args, model_name, hidden_channels=64, num_heads=1):
     assert model_name in all_model_names, "Invalid model name: {}".format(model_name)
     device = get_device()
@@ -441,8 +426,16 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
         model = GraphormerModel(args, encoder)
     elif model_name == 'gat-model':
         model = GATModel()
+        undirected = args.undirected
+        temp_edges = args.temp_edges
     elif model_name == 'gat-test':
-        model = GATTest()
+        undirected = args.undirected
+        temp_edges = args.temp_edges
+        model = GATTest(undirected=undirected, temp_edges=temp_edges)
+    elif model_name == 'hetero-graph':
+        undirected = args.undirected
+        temp_edges = args.temp_edges
+        model = HeteroGAT(undirected=undirected, temp_edges=temp_edges)
     else:
         model = SimpleTextClassifier()
     model = model.to(device)

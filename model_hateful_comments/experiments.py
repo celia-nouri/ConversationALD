@@ -16,6 +16,9 @@ def run_experiments(args):
     size = args.size
     validation = args.validation
     n_epochs = args.epochs
+    undirected = args.undirected
+    temp_edges = args.temp_edges
+
     learning_rate = args.lr
     assert validation in [True, False], "Invalid validation setting: {}".format(validation)
     assert model_name in all_model_names, "Invalid model name: {}".format(model_name)
@@ -37,6 +40,11 @@ def run_experiments(args):
         "num_heads": 1,
         "model": model_name,
         "dataset": 'hateful_discussions',
+        "undirected": undirected,
+        "temp_edges": temp_edges,
+        "size": size,
+        "validation": validation,
+        "with_graph": args.with_graph,
     }    
 
     train_loader, valid_loader, test_loader = get_pyg_data_loaders(size, validation, 0) #get_data_loaders(size, validation)
@@ -60,9 +68,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     models_string = json.dumps(all_model_names)
-    parser.add_argument('--model', type=str, default='gat-test', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--model', type=str, default='hetero-graph', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--undirected', type=bool, default=True, help='define the graph model as an undirected graph')
+    parser.add_argument('--temp-edges', type=bool, default=True, help='add temporal edges to the graph')
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
-    parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
+    parser.add_argument('--size', type=str, default='small', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
     parser.add_argument('--validation', type=bool, default=True, help='rather or not to use a validation set for model tuning')
     parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
     parser.add_argument('--lr', type=float, default=2e-5, metavar='E', help='learning rate')

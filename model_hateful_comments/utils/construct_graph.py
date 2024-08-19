@@ -28,12 +28,13 @@ label:  NA
 
 """
 
+import error
+
 def get_sentiment_features(x):
   return x
 
 
 def temporal_edges(temporal_info, depths, vid2num, undirected=False):
-  
   temporal_edges = {}
   reversed_depths = {}
   for vertex_id, depth_info in depths.items():
@@ -71,19 +72,21 @@ def get_graph(x, with_temporal_edges=False, undirected=False):
     #edge_list = list(set(edge_list + tempo_edges))
   return nodes, edges_dic_num
 
-def get_hetero_graph(x, with_temporal_edges=False, undirected=False):
-  posts_ids, comments_nodes, relations, depths, comments_edge_list, vid2num, vnum2id, temporal_info, num_comment_nodes  = preprocess(x, undirected)
+def get_hetero_graph(x, with_temporal_edges=False):
+  posts_ids, comments_nodes, relations, depths, comments_edge_list, vid2num, vnum2id, temporal_info, num_comment_nodes  = preprocess(x)
   #vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
   #edges_dic_num = convert_to_num(edges_dic, vid2num)
   if len(posts_ids) ==  1:
-    edges_dic_num = {posts_ids[0]: edge_list}
+    comments_edges_dic_num = {posts_ids[0]: comments_edge_list}
   # dictionaries with key = root, value = vertex/edge list
+  else:
+    error.err("error: there is more than one post id in a graph: ", posts_ids)
 
   if with_temporal_edges:
-    tempo_edges = temporal_edges(temporal_info, depths, vid2num, undirected)
-    edges_dic_num = merge_dictionaries(edges_dic_num, tempo_edges)
+    tempo_edges = temporal_edges(temporal_info, depths, vid2num)
+    comments_edges_dic_num = merge_dictionaries(comments_edges_dic_num, tempo_edges)
     #edge_list = list(set(edge_list + tempo_edges))
-  user_to_comments_edges, num_users, user_id2num = get_user_graphs(x, vid2num, undirected)
+  user_to_comments_edges, num_users, user_id2num = get_user_graphs(x, vid2num)
   return num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges
 
 def get_user_graphs(conversation, comments_id2num):
@@ -98,19 +101,18 @@ def get_user_graphs(conversation, comments_id2num):
     if comment_id in comments_id2num.keys():
       comment_num = comments_id2num[comment_id]
     else:
-      print('comment id ', comment_id, ' is not in comment_id2num dic. This should not be happening...')
+      error.err('error: comment id ', comment_id, ' is not in comment_id2num dic. This should not be happening...')
     user_id = x['author']
+    user_num = -1
     if user_id in user_id2num.keys():
       user_num = user_id2num[user_id]
     else:
       user_id2num[user_id] = next_vertex
       next_vertex += 1
-    if comment_num != -1:
+    if comment_num != -1 and user_num != -1:
       edge_list.append((user_num, comment_num))
   edge_list = sorted(edge_list, key=lambda x: (x[0], x[1]))
   return edge_list, next_vertex, user_id2num
-
-  
 
 
 def convert_to_num(edges_dic, vid2num):
@@ -147,7 +149,7 @@ def preprocess(conversation, undirected=False):
     x, _, _, _ = comment_obj
     key = x['id']
     if key in vertex_id_to_num:
-      print("Error, the vertex id ", key, " was already present in the id to num dictionnary")
+      error.err("Error, the vertex id ", key, " was already present in the id to num dictionnary")
     else: 
       vertex_id_to_num[key] = next_vertex
       vertex_num_to_id.append(key)
@@ -190,10 +192,10 @@ def preprocess(conversation, undirected=False):
       if parent_id in depths.keys():
         parent_depth, _, my_root = depths[parent_id]
         if key in depths.keys():
-          print('error the child key depth was already populated')
+          error.err('error the child key depth was already populated')
         depths[key] = (parent_depth + 1, parent_id, my_root)
       else:
-        print('error the parent depth was not filled in the dict...')
+        error.err('error the parent depth was not filled in the dict...')
       edge_set.add((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
       if undirected: # add revert edges
         edge_set.add((vertex_id_to_num[key], vertex_id_to_num[parent_id]))

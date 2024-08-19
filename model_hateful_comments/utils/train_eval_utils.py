@@ -66,7 +66,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device):
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                     loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                 )
-            elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test':
+            elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
                 criterion = nn.CrossEntropyLoss()
                 loss = criterion(y_pred, y).to(device)
                 _, pred_label = torch.max(y_pred, dim=1)
@@ -160,7 +160,7 @@ def run_model_pred(model, data, model_name, dataset_name, device):
             y_pred, _ = model(data)
             y_pred = y_pred.to(device)
             y = data.y
-    elif model_name == 'gat-model' or model_name == 'gat-test':
+    elif model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
         y_pred = model(data)
         y_pred = y_pred.to(device)
         y = data.y.long()
@@ -220,7 +220,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                     loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                 )
-            elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test':
+            elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
                 # Compute the loss
                 criterion = nn.CrossEntropyLoss()
                 loss = criterion(y_pred, y).to(device)
