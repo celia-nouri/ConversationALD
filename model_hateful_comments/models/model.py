@@ -304,14 +304,11 @@ class graphModel(torch.nn.Module):
         self.gat2 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_2, add_self_loops=False)
 
     def forward(self, x, edge_list):   
-        device = get_device()
-        x = x.to(device)
-        edge_indices = edge_list.to(device)
          # GAT layer 1
-        x = self.gat1(x, edge_indices)
+        x = self.gat1(x, edge_list)
         x = F.elu(x)
          # GAT layer 2
-        x = self.gat2(x, edge_indices)
+        x = self.gat2(x, edge_list)
         return x
 
 
@@ -324,6 +321,9 @@ class HeteroGAT(torch.nn.Module):
             hidden_dropout_prob=0.2,
             attention_probs_dropout_prob=0.2,
         )
+        # enable gradient checkpointing to reduce CUDA memory and send more work to compute 
+        # this was added after I encountered CUDA OOM errors when training HeteroGAT on CAD data. 
+        bert.gradient_checkpointing_enable()
         self.text_model = bert.bert
         self.text_pooler = self.text_model.pooler
         self.node_classifier = bert.classifier
@@ -335,6 +335,10 @@ class HeteroGAT(torch.nn.Module):
 
     def forward(self, data):   
         device = get_device()
+
+        # use model parallelism to split the data and steps on different devices 
+        # Move the data object to the CPU at the beginning
+        data = data.to('cpu')
         mask = data["y_mask"]
         num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges = get_hetero_graph(data.x_text, with_temporal_edges=self.temp_edges)
         user_to_comments_edges = torch.tensor(user_to_comments_edges, dtype=torch.long).permute(1,0).to(device)
@@ -360,37 +364,47 @@ class HeteroGAT(torch.nn.Module):
         # We can leverage the `T.ToUndirected()` transform for this from PyG:
         if self.undirected:
             hetero_graph = T.ToUndirected()(hetero_graph)
-        print(hetero_graph)
         x = data.x
-        x_token_type_ids = x["token_type_ids"] # [#comments, 100]
-        x_attention_mask = x["attention_mask"] # [#comments, 100]
-        x_input_ids = x["input_ids"] # [#comments, 100]
+
+        # Model //sm: BERT Model runs on cuda:2
+        device_bert = torch.device('cuda:2')
+        x_token_type_ids = x["token_type_ids"].to(device_bert) # [#comments, 100]
+        x_attention_mask = x["attention_mask"].to(device_bert) # [#comments, 100]
+        x_input_ids = x["input_ids"].to(device_bert) # [#comments, 100]
+        self.text_model = self.text_model.to(device_bert)
         bert_output = self.text_model(
             token_type_ids=x_token_type_ids,
             attention_mask=x_attention_mask,
             input_ids=x_input_ids,
         ).last_hidden_state # [#comments, 100, 768]
-        # Add node features
-        hetero_graph["comment"].x = bert_output[:, 0, :] 
         cls_embeddings = bert_output[:, 0, :] 
+
+        # Add node features: in CPU
+        hetero_graph["comment"].x = cls_embeddings.to('cpu')
         # must be the same feature size for each node type
-        hetero_graph["user"].x = torch.ones((num_users, 768))
-        #TODO: add scores as edge features
+        hetero_graph["user"].x = torch.ones((num_users, 768)).to('cpu') 
+        #TODO(celia): add scores as edge features
     
-        hetero_graph = hetero_graph.to(device, non_blocking=True)
-
+        # Model //sm: Graph Model on cuda:1
+        device_graph = torch.device('cuda:1')
+        hetero_graph = hetero_graph.to(device_graph, non_blocking=True)
+        self.graph_model = self.graph_model.to(device_graph)
         model = to_hetero(self.graph_model, hetero_graph.metadata(), aggr='sum')
-
+        model = model.to(device_graph)
         x = model(hetero_graph.x_dict, hetero_graph.edge_index_dict)
-        print("after model prediction, got ", x)
+
         comments = x['comment']
-        x_gemb = comments[mask, :]
-        x_emb = cls_embeddings[mask, :]
+        x_gemb = comments[mask, :].to(device_graph) 
+        x_emb = cls_embeddings[mask, :].to(device_graph)
         concat_out = torch.cat([x_gemb, x_emb], dim=1)
 
         # SHAPE OF X: [#vertices, 768=input_dim] --> [#vertices, 64=hidden_dim] --> [#vertices, 1] --> [#vertices]
         
-        # Classification layer (binary classification)
+        # Model //sm: Classification layer (binary classification) on cuda:0
+        device_classification = torch.device('cuda:0')
+        concat_out = concat_out.to(device_classification)
+        self.fc = self.fc.to(device_classification)
+        self.node_classifier = self.node_classifier.to(device_classification)
         out = self.fc(concat_out) 
         out = self.node_classifier(out)    
         return out
@@ -438,8 +452,8 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
         model = HeteroGAT(undirected=undirected, temp_edges=temp_edges)
     else:
         model = SimpleTextClassifier()
-    model = model.to(device)
-
+    if model_name != "hetero-graph":
+        model = model.to(device)
     return model
 
 

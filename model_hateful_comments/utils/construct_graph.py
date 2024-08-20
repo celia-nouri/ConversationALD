@@ -46,7 +46,7 @@ def temporal_edges(temporal_info, depths, vid2num, undirected=False):
     vertex_nums = reversed_depths[depth_key]
     if len(vertex_nums) > 1:
       # Zip indices and timestamps, sort by timestamp, and extract sorted indices
-      sorted_nums = [index for index, _ in sorted(zip(vertex_nums, temporal_info), key=lambda x: x[1])]
+      sorted_nums = [index for index, _ in sorted(zip(vertex_nums, temporal_info), key=lambda x: int(x[1]))]
       edge_set = set()
       for i in range(len(sorted_nums) - 1):
         edge_set.add((sorted_nums[i], sorted_nums[i+1]))
