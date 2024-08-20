@@ -159,9 +159,32 @@ def run_model_pred(model, data, model_name, dataset_name, device):
         if dataset_name == "hateful_discussions":
             y_pred, _ = model(data)
             y_pred = y_pred.to(device)
-            y = data.y
+            y = data.y.to(device)
     elif model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
-        y_pred = model(data)
+        try:
+            # Example operation that might run out of memory
+            y_pred = model(data).to(device)
+            y = data.y.to(device)
+
+        except RuntimeError as e:
+            # Check if it's an out-of-memory error
+            if "CUDA out of memory" in str(e):
+                print("CUDA out of memory error caught. Attempting to clear cache...")
+                torch.cuda.empty_cache()
+                
+                # Optionally, you can retry the operation or handle it differently
+                # Warning: Retrying can lead to another out-of-memory error if the
+                # memory requirements are too high.
+                try:
+                    y_pred = model(data)
+        
+                except RuntimeError as retry_e:
+                    print("Retry failed after clearing cache. Exiting or alternative handling needed.")
+                    raise retry_e  # Re-raise the exception after retry failure
+                
+            else:
+                # Re-raise the error if it's not a CUDA out-of-memory error
+                raise e
         y_pred = y_pred.to(device)
         y = data.y.long()
 
@@ -188,7 +211,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
     print("Test set size: ", len(test_loader))
     num_epochs, model_name, validation, size = args.epochs, args.model, args.validation, args.size
     print("Train: epochs=", num_epochs, ", dataset_name=hateful_discussions", ", model=", model_name)
-    model.to(device)
+    #model.to(device)
     best_val_f1_score = float('-inf')
     best_model = model 
     # Patience is the maximum number of epoch with decaying validation scores we will wait for, before early stopping the training
@@ -205,9 +228,11 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
         predicted_labels = []
         model.train()
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}")
+        if device.type == 'cuda':
+            torch.cuda.empty_cache()
+        torch.cuda.memory._record_memory_history()
         for index, data in enumerate(progress_bar):
             optimizer.zero_grad()
-            data = data.to(device)
             y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device)
             if model_name == 'fb-roberta-hate' or model_name =='bert-class':
                 loss = y_pred.loss
@@ -221,6 +246,8 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                     loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                 )
             elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
+                y_pred = y_pred.to(device)
+                y = y.to(device)
                 # Compute the loss
                 criterion = nn.CrossEntropyLoss()
                 loss = criterion(y_pred, y).to(device)
@@ -247,6 +274,9 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 print('y is ', y, ' and it has a shape of ', y.shape)
                 print("ERROR: output and expected predictions have different shapes. y_pred: ", y_pred.shape, " , target y: ", y.shape)
                 return
+
+        # record memory utilization snapshot for debugging
+        torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
      
         avg_loss = running_loss/ len(train_loader)
         epoch_accuracy = float(running_corrects) / len(train_loader)
