@@ -14,6 +14,18 @@ def split_train_test_val(all_file, train_file, val_file, test_file):
             else:  # 10% of lines
                 test_outfile.write(line)
             
+def split_train_test_val_from_idx(max_index, train_file, val_file, test_file):
+    with open(train_file, 'w') as train_outfile, \
+         open(val_file, 'w') as val_outfile, \
+         open(test_file, 'w') as test_outfile:
+
+        for idx in range(max_index):
+            if idx % 10 < 8:  # 80% of indices
+                train_outfile.write(f"{idx}\n")
+            elif idx % 10 == 8:  # 10% of indices
+                val_outfile.write(f"{idx}\n")
+            else:  # 10% of indices
+                test_outfile.write(f"{idx}\n")
 
 def split_lines(input_file, val_file, test_file):
     with open(input_file, 'r') as infile, \
@@ -60,4 +72,5 @@ def call_print_x_rand():
 
 if __name__ == "__main__":
     #call_print_x_rand()
-    split_train_test_val('cad_idx.txt', 'cad-train-idx-many.txt', 'cad-val-idx-many.txt', 'cad-test-idx-many.txt')
+    #split_train_test_val('cad_idx.txt', 'cad-train-idx-many.txt', 'cad-val-idx-many.txt', 'cad-test-idx-many.txt')
+    split_train_test_val_from_idx(7210, 'cad-train-idx-many.txt', 'cad-val-idx-many.txt', 'cad-test-idx-many.txt')
