@@ -11,39 +11,59 @@ tokenizer = AutoTokenizer.from_pretrained("facebook/roberta-hate-speech-dynabenc
 wandb.init(project="hatespeech-class")
 
 def precision_score(true_labels, predicted_labels):
-    true_positive = Counter()
-    false_positive = Counter()
+    true_positive = 0
+    false_positive = 0
 
     for true_label, predicted_label in zip(true_labels, predicted_labels):
         if predicted_label == 1:
             if true_label == predicted_label:
-                true_positive[1] += 1
+                true_positive += 1
             else:
-                false_positive[1] += 1
-
-    precision = true_positive[1] / (true_positive[1] + false_positive[1] + 1e-9)
+                false_positive += 1
+    print(f"true positive {true_positive} false_positive {false_positive}")
+    if true_positive + false_positive == 0:
+        return 0.0  # Avoid division by zero
+    precision = true_positive / (true_positive + false_positive)
     return precision
 
 def recall_score(true_labels, predicted_labels):
-    true_positive = Counter()
-    false_negative = Counter()
+    true_positive = 0
+    false_negative = 0
 
     for true_label, predicted_label in zip(true_labels, predicted_labels):
         if true_label == 1:
             if true_label == predicted_label:
-                true_positive[1] += 1
+                true_positive += 1
             else:
-                false_negative[1] += 1
+                false_negative += 1
 
-    recall = true_positive[1] / (true_positive[1] + false_negative[1] + 1e-9)
+    print(f"true positive {true_positive} false_negative {false_negative}")
+
+    if true_positive + false_negative == 0:
+        return 0.0  # Avoid division by zero
+
+    recall = true_positive / (true_positive + false_negative)
     return recall
 
 def f1_score(true_labels, predicted_labels):
     precision = precision_score(true_labels, predicted_labels)
     recall = recall_score(true_labels, predicted_labels)
 
-    f1 = 2 * (precision * recall) / (precision + recall + 1e-9)
+    if precision + recall == 0:
+        return 0.0  # Avoid division by zero
+    f1 = 2 * (precision * recall) / (precision + recall)
     return f1
+
+def get_criterion(cad=True):
+    if cad:
+        class_counts = torch.tensor([5200, 22355])  # CAD class distribution
+        class_weights = 1.0 / class_counts.float()
+        class_weights = class_weights / class_weights.sum()
+        # About 0.8, 0.2
+        return nn.CrossEntropyLoss(weight=class_weights)
+    else:
+        return nn.CrossEntropyLoss()
+
 
 # Define validation function
 def evaluate_model(model, loader, criterion, model_name, dataset_name, device):
@@ -67,7 +87,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device):
                     loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                 )
             elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
-                criterion = nn.CrossEntropyLoss()
+                criterion = get_criterion()
                 loss = criterion(y_pred, y).to(device)
                 _, pred_label = torch.max(y_pred, dim=1)
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
@@ -84,6 +104,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device):
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
         
     # Calculate average loss
+    print(f"eval model: running_loss {running_loss}, running_corrects {running_corrects}, true_labels {true_labels}, predicted_labels {predicted_labels}, length loader {len(loader)}")
     avg_loss = running_loss / len(loader)
     accuracy = float(running_corrects) / len(loader)
     precision = precision_score(true_labels, predicted_labels)
@@ -128,7 +149,9 @@ def run_model_pred(model, data, model_name, dataset_name, device):
         labels = y.long().to(device)
         input_ids = x["input_ids"][masked_index].to(device)
         attention_mask = x["attention_mask"][masked_index].to(device)
+        print(input_ids)
         y_pred = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+        print('y pred ', y_pred)
 
     elif model_name == "roberta-class":
         if dataset_name == "hateful_discussions":
@@ -168,7 +191,7 @@ def run_model_pred(model, data, model_name, dataset_name, device):
 
         except RuntimeError as e:
             # Check if it's an out-of-memory error
-            if "CUDA out of memory" in str(e):
+            if "CUDA out of memory" in str(e) and device.type == 'cuda':
                 print("CUDA out of memory error caught. Attempting to clear cache...")
                 torch.cuda.empty_cache()
                 
@@ -201,7 +224,7 @@ def update_running_metrics(loss, predicted_label, y, running_loss, running_corre
         good_pred = True
     #running_corrects += torch.sum(predicted_label.item() == y.item())
     true_labels.extend(y.cpu().numpy())
-    predicted_labels.extend(predicted_label)
+    predicted_labels.append(predicted_label.item())
     return running_loss, running_corrects, true_labels, predicted_labels, good_pred
 
 
@@ -230,12 +253,14 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}")
         if device.type == 'cuda':
             torch.cuda.empty_cache()
-        torch.cuda.memory._record_memory_history()
+            torch.cuda.memory._record_memory_history()
         for index, data in enumerate(progress_bar):
             optimizer.zero_grad()
             y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device)
             if model_name == 'fb-roberta-hate' or model_name =='bert-class':
-                loss = y_pred.loss
+                criterion = get_criterion().to(device)
+                labels = y.long().to(device)
+                loss = criterion(y_pred.logits, labels).to(device)
                 loss.backward()
                 optimizer.step()
                 logits = y_pred.logits
@@ -249,7 +274,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 y_pred = y_pred.to(device)
                 y = y.to(device)
                 # Compute the loss
-                criterion = nn.CrossEntropyLoss()
+                criterion = get_criterion().to(device)
                 loss = criterion(y_pred, y).to(device)
                 loss.backward()
                 optimizer.step()
@@ -276,7 +301,8 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 return
 
         # record memory utilization snapshot for debugging
-        torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
+        if device.type == 'cuda':
+            torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
      
         avg_loss = running_loss/ len(train_loader)
         epoch_accuracy = float(running_corrects) / len(train_loader)

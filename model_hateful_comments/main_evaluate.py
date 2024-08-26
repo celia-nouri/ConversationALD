@@ -56,15 +56,13 @@ def run_eval(checkpoint_path, args):
     model = get_model(args, model_name, hidden_channels=64, num_heads=1)
 
     # Load the state dictionary
-    state_dict = torch.load(checkpoint_path)
+    state_dict = torch.load(checkpoint_path, map_location=torch.device('cpu'))
 
     # Load the state dictionary into the model
     model.load_state_dict(state_dict)
 
-    # Reinitialize the model and optimizer
-    #optimizer = optim.SGD(model.parameters(), lr=0.01)
-    #optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
-    # Define optimizer and loss function
+
+    # Define loss function
     criterion = F.binary_cross_entropy_with_logits
     if model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer":
         criterion = nn.CrossEntropyLoss()
@@ -97,7 +95,7 @@ if __name__ == "__main__":
     parser.add_argument('--undirected', type=bool, default=True, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
-    parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
+    parser.add_argument('--size', type=str, default='large', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
     parser.add_argument('--validation', type=bool, default=True, help='rather or not to use a validation set for model tuning')
     parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
     parser.add_argument('--lr', type=float, default=2e-5, metavar='E', help='learning rate')
@@ -151,4 +149,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args() 
     
-    run_eval("models/checkpoints/20240814_100532_bert-class_cad.pt" , args)
+    run_eval("/Users/celianouri/Stage24/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/20240814_100532_bert-class_cad.pt" , args)

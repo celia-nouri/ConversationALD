@@ -243,7 +243,8 @@ class GATTest(torch.nn.Module):
     def forward(self, data):   
         # Save the original batch size
         #batch_size = x.size(0)
-        _, edges_dic_num = get_graph(data.x_text, with_temporal_edges=self.temp_edges, undirected=self.undirected)
+        mask = data["y_mask"]
+        _, edges_dic_num, conv_indices_to_keep = get_graph(data.x_text, mask, with_temporal_edges=self.temp_edges, undirected=self.undirected)
         assert len(edges_dic_num.keys()) <= 1, "length of edges dic num is greater than 1"
         edge_list = []
         device = get_device()
@@ -253,7 +254,6 @@ class GATTest(torch.nn.Module):
             edge_list = torch.tensor(edge_list).to(device)
         x = data.x
         #edge_indices = data.edge_index.permute(1, 0)
-        mask = data["y_mask"]
         #are_equal = torch.equal(edge_list, edge_indices)
         #print(f"Are the tensors equal? {are_equal}")
         # YES. The undirected option without temporal edges is equal to edge_indices (the edge list returned by the mDT codebase.)
@@ -261,10 +261,15 @@ class GATTest(torch.nn.Module):
         x_token_type_ids = x["token_type_ids"] # [#comments, 100]
         x_attention_mask = x["attention_mask"] # [#comments, 100]
         x_input_ids = x["input_ids"] # [#comments, 100]
+        x_token_type_ids_filtered = x_token_type_ids[conv_indices_to_keep]
+        x_attention_mask_filtered = x_attention_mask[conv_indices_to_keep]
+        x_input_ids_filtered = x_input_ids[conv_indices_to_keep]
+
+
         bert_output = self.text_model(
-            token_type_ids=x_token_type_ids,
-            attention_mask=x_attention_mask,
-            input_ids=x_input_ids,
+            token_type_ids=x_token_type_ids_filtered,
+            attention_mask=x_attention_mask_filtered,
+            input_ids=x_input_ids_filtered,
         ).last_hidden_state # [#comments, 100, 768]
 
         
@@ -340,8 +345,12 @@ class HeteroGAT(torch.nn.Module):
         # Move the data object to the CPU at the beginning
         data = data.to('cpu')
         mask = data["y_mask"]
-        num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges = get_hetero_graph(data.x_text, with_temporal_edges=self.temp_edges)
-        user_to_comments_edges = torch.tensor(user_to_comments_edges, dtype=torch.long).permute(1,0).to(device)
+
+        num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges, conv_indices_to_keep, my_new_mask_idx = get_hetero_graph(data.x_text, mask, with_temporal_edges=self.temp_edges)
+        assert conv_indices_to_keep[my_new_mask_idx] == mask.nonzero(as_tuple=True)[0], "error: the new index should be equivalent to the old one."
+        user_to_comments_edges = torch.tensor(user_to_comments_edges, dtype=torch.long).permute(1,0).to('cpu')
+        comments_to_user_edges = user_to_comments_edges.flip(0).to('cpu')
+
         hetero_graph = HeteroData()
 
         # Add node indices:
@@ -350,12 +359,13 @@ class HeteroGAT(torch.nn.Module):
 
         # Add edge indices:
         hetero_graph["user", "posts", "comment"].edge_index = user_to_comments_edges #.t().contiguous()
+        hetero_graph["comment", "posted_by", "user"].edge_index = comments_to_user_edges
         assert len(comments_edges_dic_num.keys()) == 1, "There should be only one dictionary key"
         comments_edge_list = []
         for k in comments_edges_dic_num.keys():
             comments_edge_list = comments_edges_dic_num[k]
             comments_edge_list = sorted(comments_edge_list, key=lambda x: (x[0], x[1]))
-            comments_edge_list = torch.tensor(comments_edge_list, dtype=torch.long).permute(1,0).to(device)
+            comments_edge_list = torch.tensor(comments_edge_list, dtype=torch.long).permute(1,0).to('cpu')
 
         hetero_graph["comment", "replies", "comment"].edge_index = comments_edge_list #.t().contiguous()
   
@@ -368,9 +378,9 @@ class HeteroGAT(torch.nn.Module):
 
         # Model //sm: BERT Model runs on cuda:2
         device_bert = torch.device('cuda:2')
-        x_token_type_ids = x["token_type_ids"].to(device_bert) # [#comments, 100]
-        x_attention_mask = x["attention_mask"].to(device_bert) # [#comments, 100]
-        x_input_ids = x["input_ids"].to(device_bert) # [#comments, 100]
+        x_token_type_ids = x["token_type_ids"][conv_indices_to_keep].to(device_bert) # [#comments, 100]
+        x_attention_mask = x["attention_mask"][conv_indices_to_keep].to(device_bert) # [#comments, 100]
+        x_input_ids = x["input_ids"][conv_indices_to_keep].to(device_bert) # [#comments, 100]
         self.text_model = self.text_model.to(device_bert)
         bert_output = self.text_model(
             token_type_ids=x_token_type_ids,
@@ -394,8 +404,8 @@ class HeteroGAT(torch.nn.Module):
         x = model(hetero_graph.x_dict, hetero_graph.edge_index_dict)
 
         comments = x['comment']
-        x_gemb = comments[mask, :].to(device_graph) 
-        x_emb = cls_embeddings[mask, :].to(device_graph)
+        x_gemb = comments[my_new_mask_idx].unsqueeze(0).to(device_graph) 
+        x_emb = cls_embeddings[my_new_mask_idx].unsqueeze(0).to(device_graph)
         concat_out = torch.cat([x_gemb, x_emb], dim=1)
 
         # SHAPE OF X: [#vertices, 768=input_dim] --> [#vertices, 64=hidden_dim] --> [#vertices, 1] --> [#vertices]

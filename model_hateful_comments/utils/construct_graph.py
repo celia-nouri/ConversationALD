@@ -56,8 +56,12 @@ def temporal_edges(temporal_info, depths, vid2num, undirected=False):
 
   return temporal_edges
 
-def get_graph(x, with_temporal_edges=False, undirected=False):
-  posts_ids, nodes, relations, depths, edge_list, vid2num, vnum2id, temporal_info, num_nodes  = preprocess(x, undirected)
+def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True):
+  masked_index = mask.nonzero(as_tuple=True)[0]
+  x_node, _, _, label = x[masked_index]
+  assert label != 'NA', 'NA label should not be assigned to a node we train on'
+  
+  posts_ids, nodes, relations, depths, edge_list, vid2num, vnum2id, temporal_info, num_nodes, conv_indices_to_keep  = preprocess(x, masked_index, undirected, trim)
   #vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
   #edges_dic_num = convert_to_num(edges_dic, vid2num)
   if len(posts_ids) ==  1:
@@ -68,10 +72,16 @@ def get_graph(x, with_temporal_edges=False, undirected=False):
     tempo_edges = temporal_edges(temporal_info, depths, vid2num, undirected)
     edges_dic_num = merge_dictionaries(edges_dic_num, tempo_edges)
     #edge_list = list(set(edge_list + tempo_edges))
-  return nodes, edges_dic_num
+  return nodes, edges_dic_num, conv_indices_to_keep
 
-def get_hetero_graph(x, with_temporal_edges=False):
-  posts_ids, comments_nodes, relations, depths, comments_edge_list, vid2num, vnum2id, temporal_info, num_comment_nodes  = preprocess(x)
+def get_hetero_graph(x, mask, with_temporal_edges=False, trim=True):
+  masked_index = mask.nonzero(as_tuple=True)[0]
+  x_node, _, _, label = x[masked_index]
+  my_id = x_node['id']
+  assert label != 'NA', 'NA label should not be assigned to a node we train on'
+  
+  posts_ids, comments_nodes, relations, depths, comments_edge_list, vid2num, vnum2id, temporal_info, num_comment_nodes, conv_indices_to_keep  = preprocess(x, masked_index, False, trim)
+  my_new_mask_idx = vid2num[my_id]
   #vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
   #edges_dic_num = convert_to_num(edges_dic, vid2num)
   if len(posts_ids) ==  1:
@@ -84,8 +94,9 @@ def get_hetero_graph(x, with_temporal_edges=False):
     tempo_edges = temporal_edges(temporal_info, depths, vid2num)
     comments_edges_dic_num = merge_dictionaries(comments_edges_dic_num, tempo_edges)
     #edge_list = list(set(edge_list + tempo_edges))
+  x = [y for i, y in enumerate(x) if i in conv_indices_to_keep]
   user_to_comments_edges, num_users, user_id2num = get_user_graphs(x, vid2num)
-  return num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges
+  return num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges, conv_indices_to_keep, my_new_mask_idx
 
 def get_user_graphs(conversation, comments_id2num):
   edge_list = []
@@ -132,7 +143,7 @@ def merge_dictionaries(dict1, dict2):
     return merged_dict
 
 
-def preprocess(conversation, undirected=False):
+def preprocess(conversation, mask_index, undirected=False, trim=True):
   edge_set = set()
   nodes = {}
   relations = {}
@@ -143,10 +154,20 @@ def preprocess(conversation, undirected=False):
   vertex_id_to_num = {}
   vertex_num_to_id = []
   temporal_info = []
+  ids_to_keep = set()
+  post_id = ""
+  conv_indices_to_keep = []
+
+  if trim:
+    ids_to_keep = trim_tree(conversation, mask_index)
 
   for i, comment_obj in enumerate(conversation):
     x, _, _, _ = comment_obj
     key = x['id']
+    if key in ids_to_keep:
+      conv_indices_to_keep.append(i)
+    else:
+      continue
     if key in vertex_id_to_num:
       raise RuntimeError("Error, the vertex id ", key, " was already present in the id to num dictionnary")
     else: 
@@ -158,6 +179,7 @@ def preprocess(conversation, undirected=False):
     if i == 0: #initial post 
       nodes[key] = x
       posts_ids.append(key)
+      post_id = key
       # set depths dict to (depth, parent_id, root_id)
       depths[key] = (0, "", key)
       '''
@@ -196,11 +218,78 @@ def preprocess(conversation, undirected=False):
       else:
         RuntimeError('error the parent depth was not filled in the dict...')
       edge_set.add((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
-      if undirected: # add revert edges
+      # add an edge from the initial post to this node
+      edge_set.add((vertex_id_to_num[post_id], vertex_id_to_num[key]))
+
+      if undirected: # add revert all edges
         edge_set.add((vertex_id_to_num[key], vertex_id_to_num[parent_id]))
         #edge_list.append((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
   edge_list = list(edge_set)
-  return posts_ids, nodes, relations, depths, edge_list, vertex_id_to_num, vertex_num_to_id, temporal_info, next_vertex
+  return posts_ids, nodes, relations, depths, edge_list, vertex_id_to_num, vertex_num_to_id, temporal_info, next_vertex, conv_indices_to_keep
+
+
+def trim_tree(conversation, node_index):
+    # Extract the target node and its timestamp
+    target_node = conversation[node_index]
+    target_timestamp = target_node[0]['created_utc']
+    target_id = target_node[0]['id']
+
+    # Create dictionaries to store parent-children relationships
+    children = {}
+    node_by_id = {}
+    for i, node in enumerate(conversation):
+        node_id = node[0]['id']
+        parent_id = node[0]['parent_id']
+
+        node_by_id[node_id] = node[0]
+        if parent_id not in children.keys():
+            children[parent_id] = []
+        children[parent_id].append(node[0])
+
+    # Get the root node (initial comment)
+    trimmed_ids = set()
+    root_node = conversation[0]
+    root_id = root_node[0]['id']
+    trimmed_ids.add(root_id)
+
+    # Get all nodes at depth 1 (direct children of the root)
+    depth_1_nodes = children.get(root_id, [])
+
+    # Sort depth_1_nodes by score and select the top 5
+    depth_1_nodes_sorted = sorted(depth_1_nodes, key=lambda x: x['score'], reverse=True)
+    if len(depth_1_nodes_sorted) > 5:
+        depth_1_nodes_sorted = depth_1_nodes_sorted[:5]  # Trim down to top 5 nodes
+
+    # Add top 5 depth 1 nodes and their top reply (depth 2)
+    for node in depth_1_nodes_sorted:
+        if node['created_utc'] <= target_timestamp:
+            trimmed_ids.add(node['id'])
+
+            # Get the top scoring child (depth 2) for each depth 1 node
+            depth_2_nodes = children.get(node['id'], [])
+            if depth_2_nodes:
+                top_depth_2_node = max(depth_2_nodes, key=lambda x: x['score'])
+                if top_depth_2_node['created_utc'] <= target_timestamp:
+                    trimmed_ids.add(top_depth_2_node['id'])
+    
+    # Include all nodes in the path leading to node_index
+    current_node = target_node[0]
+    while current_node['parent_id'] != '':
+        parent_id = current_node['parent_id']
+        if parent_id != "" and parent_id in node_by_id:
+            parent_node = node_by_id[parent_id]
+            if parent_node['created_utc'] <= target_timestamp:
+                trimmed_ids.add(parent_id)
+
+            else:
+              raise RuntimeError("error: parent node more recent than the child node: parent created at ",  parent_node['created_utc'], ', should be smaller than child created at ', target_timestamp)
+            current_node = parent_node
+        else:
+            break
+    # Add the node of interest (node_index)
+    trimmed_ids.add(target_id)
+
+    return list(trimmed_ids)
 
 
 def get_value(obj, key):
