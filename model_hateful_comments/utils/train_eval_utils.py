@@ -54,12 +54,14 @@ def f1_score(true_labels, predicted_labels):
     f1 = 2 * (precision * recall) / (precision + recall)
     return f1
 
-def get_criterion(cad=True):
+def get_criterion(device, cad=True):
     if cad:
-        class_counts = torch.tensor([5200, 22355])  # CAD class distribution
+        class_counts = torch.tensor([22355, 5200])  # CAD class distribution: about 80%, 20%
         class_weights = 1.0 / class_counts.float()
         class_weights = class_weights / class_weights.sum()
-        # About 0.8, 0.2
+        class_weights = class_weights.to(device)
+        print('class weights ', class_weights, ' class 0 should have lower weight since it has more samples')
+        
         return nn.CrossEntropyLoss(weight=class_weights)
     else:
         return nn.CrossEntropyLoss()
@@ -87,7 +89,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device):
                     loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                 )
             elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
-                criterion = get_criterion()
+                criterion = get_criterion(device).to(device)
                 loss = criterion(y_pred, y).to(device)
                 _, pred_label = torch.max(y_pred, dim=1)
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
@@ -149,9 +151,7 @@ def run_model_pred(model, data, model_name, dataset_name, device):
         labels = y.long().to(device)
         input_ids = x["input_ids"][masked_index].to(device)
         attention_mask = x["attention_mask"][masked_index].to(device)
-        print(input_ids)
         y_pred = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-        print('y pred ', y_pred)
 
     elif model_name == "roberta-class":
         if dataset_name == "hateful_discussions":
@@ -258,7 +258,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
             optimizer.zero_grad()
             y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device)
             if model_name == 'fb-roberta-hate' or model_name =='bert-class':
-                criterion = get_criterion().to(device)
+                criterion = get_criterion(device).to(device)
                 labels = y.long().to(device)
                 loss = criterion(y_pred.logits, labels).to(device)
                 loss.backward()
@@ -274,7 +274,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 y_pred = y_pred.to(device)
                 y = y.to(device)
                 # Compute the loss
-                criterion = get_criterion().to(device)
+                criterion = get_criterion(device).to(device)
                 loss = criterion(y_pred, y).to(device)
                 loss.backward()
                 optimizer.step()
@@ -283,15 +283,12 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels)
             
             elif y_pred.shape == y.shape:
-                print('here y pred shape equal y shape')
                 y_pred = y_pred.to(device)
                 criterion = nn.BCEWithLogitsLoss()
                 loss = criterion(y_pred, y) #.to(device)
-                print(f"Loss: {loss.item()}")
                 loss.backward()
                 optimizer.step()
                 # Update running metrics on training set 
-                print('running update metrics')
                 running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
 
             else:

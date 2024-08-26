@@ -59,11 +59,14 @@ def temporal_edges(temporal_info, depths, vid2num, undirected=False):
 def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True):
   masked_index = mask.nonzero(as_tuple=True)[0]
   x_node, _, _, label = x[masked_index]
+  my_id = x_node['id']
+
   assert label != 'NA', 'NA label should not be assigned to a node we train on'
   
   posts_ids, nodes, relations, depths, edge_list, vid2num, vnum2id, temporal_info, num_nodes, conv_indices_to_keep  = preprocess(x, masked_index, undirected, trim)
   #vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
   #edges_dic_num = convert_to_num(edges_dic, vid2num)
+  my_new_mask_idx = vid2num[my_id]
   if len(posts_ids) ==  1:
     edges_dic_num = {posts_ids[0]: edge_list}
   # dictionaries with key = root, value = vertex/edge list
@@ -72,7 +75,7 @@ def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True):
     tempo_edges = temporal_edges(temporal_info, depths, vid2num, undirected)
     edges_dic_num = merge_dictionaries(edges_dic_num, tempo_edges)
     #edge_list = list(set(edge_list + tempo_edges))
-  return nodes, edges_dic_num, conv_indices_to_keep
+  return nodes, edges_dic_num, conv_indices_to_keep, my_new_mask_idx
 
 def get_hetero_graph(x, mask, with_temporal_edges=False, trim=True):
   masked_index = mask.nonzero(as_tuple=True)[0]
