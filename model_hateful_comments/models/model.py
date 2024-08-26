@@ -244,7 +244,7 @@ class GATTest(torch.nn.Module):
         # Save the original batch size
         #batch_size = x.size(0)
         mask = data["y_mask"]
-        _, edges_dic_num, conv_indices_to_keep = get_graph(data.x_text, mask, with_temporal_edges=self.temp_edges, undirected=self.undirected)
+        _, edges_dic_num, conv_indices_to_keep, my_new_mask_idx = get_graph(data.x_text, mask, with_temporal_edges=self.temp_edges, undirected=self.undirected)
         assert len(edges_dic_num.keys()) <= 1, "length of edges dic num is greater than 1"
         edge_list = []
         device = get_device()
@@ -278,13 +278,18 @@ class GATTest(torch.nn.Module):
         x = x.to(device)
         edge_indices = edge_list.to(device)
         cls_embeddings = bert_output[:, 0, :] 
-         # GAT layer 1
-        x = self.gat1(cls_embeddings, edge_indices)
-        x = F.elu(x)
-         # GAT layer 2
-        x = self.gat2(x, edge_indices)
-        x_gemb = x[mask, :]
-        x_emb = cls_embeddings[mask, :]
+        # if there are no edges in the graph, ignore the GAT layers
+        if edge_indices.numel() == 0:
+            x = cls_embeddings
+        else:
+            # GAT layer 1
+            x = self.gat1(cls_embeddings, edge_indices)
+            x = F.elu(x)
+            # GAT layer 2
+            x = self.gat2(x, edge_indices)
+
+        x_gemb = x[my_new_mask_idx].unsqueeze(0)
+        x_emb = cls_embeddings[my_new_mask_idx].unsqueeze(0)
 
         concat_out = torch.cat([x_gemb, x_emb], dim=1)
 
@@ -358,16 +363,20 @@ class HeteroGAT(torch.nn.Module):
         hetero_graph["user"].node_id = torch.arange(num_users)
 
         # Add edge indices:
-        hetero_graph["user", "posts", "comment"].edge_index = user_to_comments_edges #.t().contiguous()
-        hetero_graph["comment", "posted_by", "user"].edge_index = comments_to_user_edges
+        if len(user_to_comments_edges) > 0:
+            hetero_graph["user", "posts", "comment"].edge_index = user_to_comments_edges #.t().contiguous()
+        if len(comments_to_user_edges) > 0:    
+            hetero_graph["comment", "posted_by", "user"].edge_index = comments_to_user_edges
+            
         assert len(comments_edges_dic_num.keys()) == 1, "There should be only one dictionary key"
         comments_edge_list = []
         for k in comments_edges_dic_num.keys():
             comments_edge_list = comments_edges_dic_num[k]
             comments_edge_list = sorted(comments_edge_list, key=lambda x: (x[0], x[1]))
-            comments_edge_list = torch.tensor(comments_edge_list, dtype=torch.long).permute(1,0).to('cpu')
-
-        hetero_graph["comment", "replies", "comment"].edge_index = comments_edge_list #.t().contiguous()
+            if len(comments_edge_list) > 0:
+                comments_edge_list = torch.tensor(comments_edge_list, dtype=torch.long).permute(1,0).to('cpu')
+        if len(comments_edge_list) > 0:
+            hetero_graph["comment", "replies", "comment"].edge_index = comments_edge_list #.t().contiguous()
   
         # We also need to make sure to add the reverse edges from movies to users
         # in order to let a GNN be able to pass messages in both directions.
