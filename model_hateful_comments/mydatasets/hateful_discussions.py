@@ -95,7 +95,7 @@ class HatefulDiscussions(Dataset):
     
 
 def create_hatespeech_dataset(size='medium', validation=True):
-    assert size in ["small", "small-1000", "medium", "large", "cad"] 
+    assert size in ["small", "small-1000", "medium", "large", "cad", "cad-small"] 
     # Set SLURM_TMPDIR
     # Switch to the right directory, depending on local or CLEPS
     os.environ['SLURM_TMPDIR'] = "/home/cnouri/HatefulDiscussionsModeling/data"
@@ -112,6 +112,9 @@ def create_hatespeech_dataset(size='medium', validation=True):
     if size == "cad":
         train_filename = path + "/cad-train-idx-many.txt"
         test_filename = path + "/cad-test-idx-many.txt"
+    if size == "cad-small":
+        val_filename = path + "/cad-val-idx-small.txt"
+        test_filename = path + "/cad-test-idx-small.txt"
     with open(train_filename, "r") as file:
         for line in file:
             train_idx.append(int(line[:-1]))
@@ -126,6 +129,9 @@ def create_hatespeech_dataset(size='medium', validation=True):
         if size == "cad":
             val_filename = path + "/cad-val-idx-many.txt"
             test_filename = path + "/cad-test-idx-many.txt"
+        if size == "cad-small":
+            val_filename = path + "/cad-val-idx-small.txt"
+            test_filename = path + "/cad-test-idx-small.txt"
         with open(val_filename, "r") as file:
             for line in file:
                 val_idx.append(int(line[:-1]))
