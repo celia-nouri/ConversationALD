@@ -258,12 +258,9 @@ class GATTest(torch.nn.Module):
         #print(f"Are the tensors equal? {are_equal}")
         # YES. The undirected option without temporal edges is equal to edge_indices (the edge list returned by the mDT codebase.)
 
-        x_token_type_ids = x["token_type_ids"] # [#comments, 100]
-        x_attention_mask = x["attention_mask"] # [#comments, 100]
-        x_input_ids = x["input_ids"] # [#comments, 100]
-        x_token_type_ids_filtered = x_token_type_ids[conv_indices_to_keep]
-        x_attention_mask_filtered = x_attention_mask[conv_indices_to_keep]
-        x_input_ids_filtered = x_input_ids[conv_indices_to_keep]
+        x_token_type_ids_filtered = x["token_type_ids"][conv_indices_to_keep]
+        x_attention_mask_filtered = x["attention_mask"][conv_indices_to_keep]
+        x_input_ids_filtered = x["input_ids"][conv_indices_to_keep]
 
 
         bert_output = self.text_model(

@@ -6,6 +6,8 @@ from models.model import all_model_names
 import wandb
 from tqdm import tqdm 
 from datetime import datetime
+from torch.cuda.amp import autocast, GradScaler
+
 
 tokenizer = AutoTokenizer.from_pretrained("facebook/roberta-hate-speech-dynabench-r4-target")
 wandb.init(project="hatespeech-class")
@@ -20,7 +22,6 @@ def precision_score(true_labels, predicted_labels):
                 true_positive += 1
             else:
                 false_positive += 1
-    print(f"true positive {true_positive} false_positive {false_positive}")
     if true_positive + false_positive == 0:
         return 0.0  # Avoid division by zero
     precision = true_positive / (true_positive + false_positive)
@@ -37,7 +38,6 @@ def recall_score(true_labels, predicted_labels):
             else:
                 false_negative += 1
 
-    print(f"true positive {true_positive} false_negative {false_negative}")
 
     if true_positive + false_negative == 0:
         return 0.0  # Avoid division by zero
@@ -54,8 +54,8 @@ def f1_score(true_labels, predicted_labels):
     f1 = 2 * (precision * recall) / (precision + recall)
     return f1
 
-def get_criterion(device, cad=True):
-    if cad:
+def get_criterion(device, balanced=True):
+    if not balanced:
         class_counts = torch.tensor([22355, 5200])  # CAD class distribution: about 80%, 20%
         class_weights = 1.0 / class_counts.float()
         class_weights = class_weights / class_weights.sum()
@@ -68,7 +68,7 @@ def get_criterion(device, cad=True):
 
 
 # Define validation function
-def evaluate_model(model, loader, criterion, model_name, dataset_name, device):
+def evaluate_model(model, loader, criterion, model_name, dataset_name, device, output_file=""):
     model.eval()
     running_loss = 0.0
     running_corrects = 0
@@ -76,37 +76,56 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device):
     predicted_labels = []
 
     with torch.no_grad():
-        for data in loader:
-            y, y_pred = run_model_pred(model, data, model_name, dataset_name, device)
-            if model_name == 'fb-roberta-hate' or model_name =='bert-class':
-                loss = y_pred.loss
-                logits = y_pred.logits
 
-                # Compute predictions
-                _, pred_label = torch.max(logits, dim=1)
-                # Update running metrics
-                running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
-                    loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
-                )
-            elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
-                criterion = get_criterion(device).to(device)
-                loss = criterion(y_pred, y).to(device)
-                _, pred_label = torch.max(y_pred, dim=1)
-                running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
-                    loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
-                )
-            #elif model_name == 'gat-model':
-            #    y_pred = y_pred.squeeze(1)
-            #    loss = criterion(y_pred, y).to(device)
-            #    _, pred_label = torch.max(y_pred, dim=1)
-            #    running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels)
-            else:
-                loss = criterion(y_pred, y).to(device)
-                # Accumulate loss, corrects, true and predicted labels 
-                running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
+        with open(output_file, 'w') if output_file else None as outfile:
+            for data in loader:
+
+                y, y_pred = run_model_pred(model, data, model_name, dataset_name, device)
+                if model_name == 'fb-roberta-hate' or model_name =='bert-class':
+                    loss = y_pred.loss
+                    logits = y_pred.logits
+
+                    # Compute predictions
+                    _, pred_label = torch.max(logits, dim=1)
+                    # Update running metrics
+                    running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
+                        loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
+                    )
+                elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
+                    criterion = get_criterion(device).to(device)
+                    loss = criterion(y_pred, y).to(device)
+                    _, pred_label = torch.max(y_pred, dim=1)
+                    running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
+                        loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
+                    )
+                #elif model_name == 'gat-model':
+                #    y_pred = y_pred.squeeze(1)
+                #    loss = criterion(y_pred, y).to(device)
+                #    _, pred_label = torch.max(y_pred, dim=1)
+                #    running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels)
+                else:
+                    loss = criterion(y_pred, y).to(device)
+                    # Accumulate loss, corrects, true and predicted labels 
+                    running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
+                if outfile:
+                    outfile.write(f"{y_pred} \t {y}")
+                    if model_name == "bert-class":
+                        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+                        text = data.x_text[masked_index]
+                        outfile.write(f" \t {text} \t {masked_index} \n")
+                    elif model_name == 'gat-test':
+                        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+                        text = data.x_text[masked_index]
+                         _, edges_dic_num, conv_indices_to_keep, my_new_mask_idx = get_graph(data.x_text, data["y_mask"], with_temporal_edges=False, undirected=False)
+                        outfile.write(f" \t {text} \t {masked_index} \t {my_new_mask_idx} \t {conv_indices_to_keep} \t {edges_dic_num} \t {data.x_text} \n")
+                    elif model_name == 'hetero-graph':
+                        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+                        text = data.x_text[masked_index]
+                        mask = data["y_mask"]
+                        num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges, conv_indices_to_keep, my_new_mask_idx = get_hetero_graph(data.x_text, mask, with_temporal_edges=False)
+                        outfile.write(f" \t {text} \t {masked_index} \t {my_new_mask_idx} \t {conv_indices_to_keep} \t {comments_edges_dic_num} \t {user_to_comments_edges} \t {num_comment_nodes} \t {num_users} \t {data.x_text} \n")       
         
     # Calculate average loss
-    print(f"eval model: running_loss {running_loss}, running_corrects {running_corrects}, true_labels {true_labels}, predicted_labels {predicted_labels}, length loader {len(loader)}")
     avg_loss = running_loss / len(loader)
     accuracy = float(running_corrects) / len(loader)
     precision = precision_score(true_labels, predicted_labels)
@@ -235,7 +254,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
     num_epochs, model_name, validation, size = args.epochs, args.model, args.validation, args.size
     print("Train: epochs=", num_epochs, ", dataset_name=hateful_discussions", ", model=", model_name)
     #model.to(device)
-    best_val_f1_score = float('-inf')
+    best_val_acc = float('-inf')
     best_model = model 
     # Patience is the maximum number of epoch with decaying validation scores we will wait for, before early stopping the training
     patience = 20
@@ -243,6 +262,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
     # Generate a unique timestamp string
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     model_check_path = f"./models/checkpoints/{timestamp}_{model_name}_{size}.pt"
+    scaler = GradScaler()
     # Training loop
     for epoch in range(num_epochs):
         running_loss = float(0)
@@ -253,60 +273,41 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
         progress_bar = tqdm(train_loader, desc=f"Epoch {epoch + 1}/{num_epochs}")
         if device.type == 'cuda':
             torch.cuda.empty_cache()
-            torch.cuda.memory._record_memory_history()
+            #torch.cuda.memory._record_memory_history()
         for index, data in enumerate(progress_bar):
             optimizer.zero_grad()
-            y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device)
-            if model_name == 'fb-roberta-hate' or model_name =='bert-class':
-                criterion = get_criterion(device).to(device)
-                labels = y.long().to(device)
-                loss = criterion(y_pred.logits, labels).to(device)
-                loss.backward()
-                optimizer.step()
-                logits = y_pred.logits
-                # Compute predictions
-                _, pred_label = torch.max(logits, dim=1)
-                # Update running metrics
-                running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
-                    loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
-                )
-            elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
-                y_pred = y_pred.to(device)
+            criterion = get_criterion(device).to(device)
+
+            with autocast():
+                y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device)
                 y = y.to(device)
-                # Compute the loss
-                criterion = get_criterion(device).to(device)
-                loss = criterion(y_pred, y).to(device)
-                loss.backward()
-                optimizer.step()
-                _, pred_label = torch.max(y_pred, dim=1)
-                # Update running metrics on training set 
-                running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels)
-            
-            elif y_pred.shape == y.shape:
-                y_pred = y_pred.to(device)
-                criterion = nn.BCEWithLogitsLoss()
-                loss = criterion(y_pred, y) #.to(device)
-                loss.backward()
-                optimizer.step()
-                # Update running metrics on training set 
-                running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
-
-            else:
-                print('y pred is ', y_pred, ' and it has a shape of ', y_pred.shape)
-                print('y is ', y, ' and it has a shape of ', y.shape)
-                print("ERROR: output and expected predictions have different shapes. y_pred: ", y_pred.shape, " , target y: ", y.shape)
-                return
-
+                if model_name == 'fb-roberta-hate' or model_name =='bert-class':
+                    labels = y.long().to(device)
+                    logits = y_pred.logits.to(device)
+                    loss = criterion(logits, labels).to(device)
+                elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
+                    y_pred = y_pred.to(device)
+                    loss = criterion(y_pred, y).to(device)
+                    logits = y_pred
+            scaler.scale(loss).backward()
+            scaler.step(optimizer)
+            scaler.update()
+            # Compute predictions
+            _, pred_label = torch.max(logits, dim=1)
+            # Update running metrics
+            running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
+                loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
+            )
+                
         # record memory utilization snapshot for debugging
-        if device.type == 'cuda':
-            torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
+        #if device.type == 'cuda':
+        #    torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
      
         avg_loss = running_loss/ len(train_loader)
         epoch_accuracy = float(running_corrects) / len(train_loader)
         epoch_precision = precision_score(true_labels, predicted_labels)
         epoch_recall = recall_score(true_labels, predicted_labels)
         epoch_f1 = f1_score(true_labels, predicted_labels)
-
 
         # Log metrics to wandb
         wandb.log({
@@ -324,7 +325,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
 
         # If validation, compute and report the main metrics on the validation set
         if validation:
-            avg_val_loss, val_accuracy, val_f1, val_precision, val_recall = evaluate_model(model, val_loader, criterion, model_name, 'hateful_discussions', device)
+            avg_val_loss, val_accuracy, val_f1, val_precision, val_recall = evaluate_model(model, val_loader, criterion, model_name, 'hateful_discussions', device, f"{model_name}_{size}_{epoch_num}_val_outputs.tsv")
             wandb.log({
                 "epoch": epoch + 1,
                 "val_loss": avg_val_loss,
@@ -339,9 +340,9 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 f"Val Recall: {val_recall:.4f}, Val F1 Score: {val_f1:.4f}")
             
             # Update best validation f1 score, best model and save checkpoint
-            if val_f1 > best_val_f1_score:
-                print("Replacing best validation f1 score from ", best_val_f1_score , " to ", val_f1)
-                best_val_f1_score = val_f1
+            if val_accuracy > best_val_acc:
+                print("Replacing best validation accuracy score from ", best_val_f1_score , " to ", val_f1)
+                best_val_acc = val_accuracy
                 best_model = model
                 trigger_times = 0
                 torch.save(model.state_dict(), model_check_path)
@@ -356,7 +357,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
 
     # Finally, evaluate on the test set and report all metrics
     print("Running evaluation ...")
-    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate_model(best_model, test_loader, criterion, model_name, 'hateful_discussions', device)
+    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate_model(best_model, test_loader, criterion, model_name, 'hateful_discussions', device, f"{model_name}_{size}_{epoch_num}_test_outputs.tsv")
     wandb.log({
         "test_loss": test_loss,
         "test_accuracy": test_accuracy,

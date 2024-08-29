@@ -15,7 +15,7 @@ class HatefulDiscussions(Dataset):
         pre_transform: Optional[Callable] = None,
         pre_filter: Optional[Callable] = None,
     ):
-        self.num_labels = 18673 if size =='large' or size == "cad" else 7210 if size =='medium' else 500 if size == 'small' else 6200
+        self.num_labels = 18673 if size =='large' or size == "cad" else 7210 if size =='medium' else 500 if size == 'small' else 1002 if size == "cad-small" else 6200
         self.k = 0
         super().__init__(root, transform, pre_transform, pre_filter)
 
