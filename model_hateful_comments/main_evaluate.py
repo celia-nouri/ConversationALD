@@ -24,7 +24,7 @@ def run_eval(checkpoint_path, args):
 
     assert validation in [True, False], "Invalid validation setting: {}".format(validation)
     assert model_name in all_model_names, "Invalid model name: {}".format(model_name)
-    assert size in ["small", "small-1000", "medium", "large", "cad"], "Invalid size setting: {}".format(size)
+    assert size in ["small", "small-1000", "medium", "large", "cad", "cad-small"], "Invalid size setting: {}".format(size)
     if model_name == "multimodal-transformer":
         args.with_graph = True
     else:
@@ -91,11 +91,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     models_string = json.dumps(all_model_names)
-    parser.add_argument('--model', type=str, default='bert-class', help='the model to use, can take one of the following values: ' + models_string)
-    parser.add_argument('--undirected', type=bool, default=True, help='define the graph model as an undirected graph')
+    parser.add_argument('--model', type=str, default='hetero-graph', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
-    parser.add_argument('--size', type=str, default='large', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
+    parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
     parser.add_argument('--validation', type=bool, default=True, help='rather or not to use a validation set for model tuning')
     parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
     parser.add_argument('--lr', type=float, default=2e-5, metavar='E', help='learning rate')
@@ -148,5 +148,5 @@ if __name__ == "__main__":
     parser.add_argument("--pre-layernorm", action="store_true", help="apply layernorm before self-attention and ffn. Without this, post layernorm will used")
 
     args = parser.parse_args() 
-    
-    run_eval("/Users/celianouri/Stage24/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/20240814_100532_bert-class_cad.pt" , args)
+
+    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/20240827_124914_hetero-graph_cad.pt" , args)
