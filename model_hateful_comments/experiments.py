@@ -53,7 +53,7 @@ def run_experiments(args):
 
     # Define optimizer and loss function
     criterion = F.binary_cross_entropy_with_logits
-    optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=0.01)
+    optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=0.1)
     #criterion = loss_fn
 
     print("Training set size: ", len(train_loader))
@@ -74,7 +74,7 @@ if __name__ == "__main__":
     parser.add_argument('--size', type=str, default='cad-small', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
     parser.add_argument('--validation', type=bool, default=True, help='rather or not to use a validation set for model tuning')
     parser.add_argument('--epochs', type=int, default=15, metavar='E', help='number of epochs')
-    parser.add_argument('--lr', type=float, default=2e-5, metavar='E', help='learning rate')
+    parser.add_argument('--lr', type=float, default=3e-6, metavar='E', help='learning rate')
     parser.add_argument('--enable-images', type=bool, default=True, metavar='E', help='rather or not to use the post images for training, defaults to True')
 
 
