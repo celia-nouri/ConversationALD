@@ -3,13 +3,13 @@ import torch
 import torch.nn as nn
 import wandb
 from models.model import all_model_names, get_device
-from transformers import AdamW
+from transformers import AdamW, AutoTokenizer
 import torch.nn.functional as F
 from mydatasets.mydataloaders import get_pyg_data_loaders
 from models.model import get_model
 from fairseq.utils import get_available_activation_fns
 
-from utils.train_eval_utils import evaluate_model
+from utils.train_eval_utils import evaluate_model, get_criterion
 import argparse
 
 
@@ -21,6 +21,8 @@ def run_eval(checkpoint_path, args):
     learning_rate = args.lr
     undirected = args.undirected
     temp_edges = args.temp_edges
+    num_layers = args.num_layers
+
 
     assert validation in [True, False], "Invalid validation setting: {}".format(validation)
     assert model_name in all_model_names, "Invalid model name: {}".format(model_name)
@@ -33,6 +35,8 @@ def run_eval(checkpoint_path, args):
     device = get_device()
 
     print(f"Evaluating {model_name} on {size} Hateful Discussions dataset with validation={validation}...")
+    print(f"Model hyperparams are num layers {num_layers}, undirected {undirected}, temporal edges {temp_edges}")
+    print("Checkpoint path ", checkpoint_path)
 
     # Log hyperparameters
     wandb.config = {
@@ -56,7 +60,7 @@ def run_eval(checkpoint_path, args):
     model = get_model(args, model_name, hidden_channels=64, num_heads=1)
 
     # Load the state dictionary
-    state_dict = torch.load(checkpoint_path, map_location=torch.device('cpu'))
+    state_dict = torch.load(checkpoint_path, map_location=device)
 
     # Load the state dictionary into the model
     model.load_state_dict(state_dict)
@@ -65,14 +69,16 @@ def run_eval(checkpoint_path, args):
     # Define loss function
     criterion = F.binary_cross_entropy_with_logits
     if model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer":
-        criterion = nn.CrossEntropyLoss()
+        criterion = get_criterion(device).to(device)
 
     # Set the model to evaluation mode
     model.eval()
 
+    tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+
     # Finally, evaluate on the test set and report all metrics
     print("Running evaluation ...")
-    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate_model(model, test_loader, criterion, model_name, 'hateful_discussions', device)
+    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate_model(model, test_loader, criterion, model_name, 'hateful_discussions', device, f"{model_name}_{size}_eval_test_outputs.tsv", tokenizer)
     wandb.log({
         "test_loss": test_loss,
         "test_accuracy": test_accuracy,
@@ -91,14 +97,15 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     models_string = json.dumps(all_model_names)
-    parser.add_argument('--model', type=str, default='hetero-graph', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--model', type=str, default='gat-test', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--num-layers', type=int, default=4, help='the number of GAT layers in graph models')
     parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
     parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
     parser.add_argument('--validation', type=bool, default=True, help='rather or not to use a validation set for model tuning')
     parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
-    parser.add_argument('--lr', type=float, default=2e-5, metavar='E', help='learning rate')
+    parser.add_argument('--lr', type=float, default=3e-6, metavar='E', help='learning rate')
     parser.add_argument('--enable-images', type=bool, default=True, metavar='E', help='rather or not to use the post images for training, defaults to True')
 
 
@@ -149,4 +156,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args() 
 
-    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/20240827_124914_hetero-graph_cad.pt" , args)
+    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/20241118_025453_gat-test_cad.pt" , args)

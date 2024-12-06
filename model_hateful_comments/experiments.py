@@ -18,8 +18,10 @@ def run_experiments(args):
     n_epochs = args.epochs
     undirected = args.undirected
     temp_edges = args.temp_edges
+    num_layers = args.num_layers
 
     learning_rate = args.lr
+    weight_decay = args.wd    
     assert validation in [True, False], "Invalid validation setting: {}".format(validation)
     assert model_name in all_model_names, "Invalid model name: {}".format(model_name)
     assert size in ["small", "small-1000", "medium", "large", "cad", "cad-small"], "Invalid size setting: {}".format(size)
@@ -29,7 +31,8 @@ def run_experiments(args):
         args.with_graph = False
 
     device = get_device()
-    print(f"Training {model_name} on {size} Hateful Discussions dataset with validation={validation}, for {n_epochs} epochs and a learning rate of {learning_rate}...")
+    print(f"Training {model_name} on {size} Hateful Discussions dataset with validation={validation}, for {n_epochs} epochs, a learning rate of {learning_rate} and weight decay of {weight_decay}...")
+    print(f"Model hyperparams are num layers {num_layers}, undirected {undirected}, temporal edges {temp_edges}")
 
     # Log hyperparameters
     wandb.config = {
@@ -53,7 +56,7 @@ def run_experiments(args):
 
     # Define optimizer and loss function
     criterion = F.binary_cross_entropy_with_logits
-    optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=0.1)
+    optimizer = AdamW(model.parameters(), lr=learning_rate, weight_decay=weight_decay)
     #criterion = loss_fn
 
     print("Training set size: ", len(train_loader))
@@ -67,14 +70,18 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     models_string = json.dumps(all_model_names)
-    parser.add_argument('--model', type=str, default='bert-class', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--model', type=str, default='gat-test', help='the model to use, can take one of the following values: ' + models_string)
     parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
+    parser.add_argument('--num-layers', type=int, default=3, help='the number of GAT layers in graph models')
+
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
-    parser.add_argument('--size', type=str, default='cad-small', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
+    parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
     parser.add_argument('--validation', type=bool, default=True, help='rather or not to use a validation set for model tuning')
-    parser.add_argument('--epochs', type=int, default=15, metavar='E', help='number of epochs')
+    parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
     parser.add_argument('--lr', type=float, default=3e-6, metavar='E', help='learning rate')
+    parser.add_argument('--wd', type=float, default=0.1, metavar='E', help='weight decay')
+
     parser.add_argument('--enable-images', type=bool, default=True, metavar='E', help='rather or not to use the post images for training, defaults to True')
 
 

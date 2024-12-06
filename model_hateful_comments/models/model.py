@@ -4,13 +4,15 @@ from torch_geometric.nn import RGCNConv, GraphConv, GATConv, to_hetero
 from torch_geometric.data import Data, HeteroData
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import AutoModel, DistilBertModel, RobertaModel, AutoModelForSequenceClassification
+from transformers import AutoModel, DistilBertModel, RobertaModel, AutoModelForSequenceClassification, AutoTokenizer, AutoConfig
 from utils.construct_graph import get_graph, get_hetero_graph
 from torchsummary import summary
 
 from models.multimodal_transformer import GraphormerModel, GraphormerEncoder
 
-all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test", "hetero-graph"]
+
+
+all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "bert-concat", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test", "hetero-graph"]
 #var tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased', truncation=True, do_lower_case=True);
 
 # DistilBERT Classifier model 
@@ -68,6 +70,67 @@ class SimpleTextClassifier(torch.nn.Module):
         return x
 
 
+class BERTConcat(nn.Module):
+    def __init__(self, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.3, attention_probs_dropout_prob=0.3):
+        super(BERTConcat, self).__init__()
+        device = get_device()
+        
+        # Define a custom configuration for BERT with dropout
+        self.config = AutoConfig.from_pretrained(
+            pretrained_model_name,
+            num_labels=num_classes,  # Number of classes for classification
+            hidden_dropout_prob=hidden_dropout_prob,  # Dropout for hidden layers
+            attention_probs_dropout_prob=attention_probs_dropout_prob  # Dropout for attention layers
+        )
+        
+        # Load pre-trained BERT model for sequence classification with the custom config
+        self.bert = AutoModelForSequenceClassification.from_pretrained(
+            pretrained_model_name,
+            config=self.config
+        ).to(device)
+        
+        # Tokenizer for encoding text inputs
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+    
+    def forward(self, context_texts, target_text, labels):
+        device = get_device()
+        # Combine context texts and target text using the [SEP] token
+        input_text = self.prepare_input(context_texts, target_text)
+        
+        # Tokenize and encode the concatenated input text
+        encoding = self.tokenizer(
+            input_text,
+            padding='max_length',  # Pads up to the max length
+            truncation=True,       # Truncate context if needed
+            max_length=512,        # BERT's max input size
+            return_tensors='pt',   # Return PyTorch tensors
+        )
+        encoding = encoding.to(device)
+        
+        input_ids = encoding['input_ids']
+        attention_mask = encoding['attention_mask']
+        
+        # Pass the inputs through BERT
+        outputs = self.bert(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
+        
+        return outputs
+    
+    def prepare_input(self, context_texts, target_text):
+        # Prepare the concatenated input text with [SEP] tokens
+        # Assuming context_texts is a list of strings
+        combined_context = " [SEP] ".join(context_texts)
+
+        # estimate of number of tokens to keep.
+        max_ctx_len = 512 - int(len(" [SEP] " + target_text) / 4)
+        if max_ctx_len > 0:
+            combined_context = combined_context[:max_ctx_len]
+        else: 
+            combined_context = ""
+        
+        # Concatenate context and target text
+        input_text = combined_context + " [SEP] " + target_text
+        
+        return input_text
 
 class SimpleGraphModel(torch.nn.Module):
     def __init__(self, in_channels, hidden_channels, num_heads=1):
@@ -220,16 +283,27 @@ class GATModel(torch.nn.Module):
 
 # New graph model
 class GATTest(torch.nn.Module):
-    def __init__(self, in_channels=768, hidden_channels=768, num_heads_1=8, num_heads_2=1, dropout_1=0.6, dropout_2=0.6, undirected=True, temp_edges=False):
+    def __init__(self, in_channels=768, hidden_channels=768, num_heads_1=8, num_heads_2=1, dropout_1=0.4, dropout_2=0.4, undirected=True, temp_edges=False, num_layers=2):
         super(GATTest, self).__init__()
         #self.fc1 = nn.Linear(in_channels, hidden_channels)
-        self.gat1 = GATConv(in_channels, hidden_channels, heads=num_heads_1, dropout=dropout_1)
-        self.gat2 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_2)
+        if num_layers == 1:
+            self.gat1 = GATConv(in_channels, hidden_channels, heads=num_heads_2, dropout=dropout_1)
+        else:
+            self.gat1 = GATConv(in_channels, hidden_channels, heads=num_heads_1, dropout=dropout_1)
+            if num_layers == 2:
+                self.gat2 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_2)
+            else:
+                self.gat2 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_1)
+            if num_layers == 3:
+                self.gat3 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_2)
+            if num_layers == 4:
+                self.gat3 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_1)
+                self.gat4 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_2)
         self.fc = torch.nn.Linear(1536, 768)  # Output one value for binary classification
         bert = AutoModelForSequenceClassification.from_pretrained(
             "bert-base-uncased",
-            hidden_dropout_prob=0.2,
-            attention_probs_dropout_prob=0.2,
+            hidden_dropout_prob=0.3,
+            attention_probs_dropout_prob=0.3,
         )
         self.text_model = bert.bert
         self.text_pooler = self.text_model.pooler
@@ -237,6 +311,9 @@ class GATTest(torch.nn.Module):
         self.bert_dropout = bert.dropout
         self.undirected = undirected
         self.temp_edges = temp_edges
+        self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+        self.num_layers = num_layers
+        print('Inside GATTEST init num layers is ', self.num_layers)
     
 
 
@@ -253,20 +330,23 @@ class GATTest(torch.nn.Module):
             edge_list = sorted(edge_list, key=lambda x: (x[0], x[1]))
             edge_list = torch.tensor(edge_list).to(device)
         x = data.x
+        y = data.y
         #edge_indices = data.edge_index.permute(1, 0)
         #are_equal = torch.equal(edge_list, edge_indices)
         #print(f"Are the tensors equal? {are_equal}")
         # YES. The undirected option without temporal edges is equal to edge_indices (the edge list returned by the mDT codebase.)
 
-        x_token_type_ids_filtered = x["token_type_ids"][conv_indices_to_keep]
-        x_attention_mask_filtered = x["attention_mask"][conv_indices_to_keep]
-        x_input_ids_filtered = x["input_ids"][conv_indices_to_keep]
+        texts = []
+        for i in conv_indices_to_keep:
+            texts.append(data.x_text[i][0]['body'])
 
+        labels = y.long().to(device)
+        encodings = self.tokenizer(texts, truncation=True, padding='max_length', max_length=300, return_tensors='pt').to(device)
 
         bert_output = self.text_model(
-            token_type_ids=x_token_type_ids_filtered,
-            attention_mask=x_attention_mask_filtered,
-            input_ids=x_input_ids_filtered,
+            token_type_ids=encodings["token_type_ids"],
+            attention_mask=encodings["attention_mask"],
+            input_ids=encodings["input_ids"],
         ).last_hidden_state # [#comments, 100, 768]
 
         
@@ -282,9 +362,20 @@ class GATTest(torch.nn.Module):
             # GAT layer 1
             x = self.gat1(cls_embeddings, edge_indices)
             x = F.elu(x)
-            # GAT layer 2
-            x = self.gat2(x, edge_indices)
-
+            if self.num_layers > 1:
+                # GAT layer 2
+                x = self.gat2(x, edge_indices)
+                if self.num_layers == 3:
+                    # GAT layer 3
+                    x = F.elu(x)
+                    x = self.gat3(x, edge_indices)
+                elif self.num_layers == 4:
+                    # GAT layer 3
+                    x = F.elu(x)
+                    x = self.gat3(x, edge_indices)
+                    # GAT layer 4
+                    x = F.elu(x) 
+                    x = self.gat4(x, edge_indices)               
         x_gemb = x[my_new_mask_idx].unsqueeze(0)
         x_emb = cls_embeddings[my_new_mask_idx].unsqueeze(0)
 
@@ -323,10 +414,11 @@ class HeteroGAT(torch.nn.Module):
     def __init__(self, model=GATTest, in_channels=768, hidden_channels=768, num_heads_1=8, num_heads_2=1, dropout_1=0.6, dropout_2=0.6, undirected=True, temp_edges=False):
         super(HeteroGAT, self).__init__()
         self.fc = torch.nn.Linear(1536, 768)  # Output one value for binary classification
+        self.tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
         bert = AutoModelForSequenceClassification.from_pretrained(
             "bert-base-uncased",
-            hidden_dropout_prob=0.2,
-            attention_probs_dropout_prob=0.2,
+            hidden_dropout_prob=0.3,
+            attention_probs_dropout_prob=0.3,
         )
         # enable gradient checkpointing to reduce CUDA memory and send more work to compute 
         # this was added after I encountered CUDA OOM errors when training HeteroGAT on CAD data. 
@@ -384,15 +476,31 @@ class HeteroGAT(torch.nn.Module):
 
         # Model //sm: BERT Model runs on cuda:2
         device_bert = torch.device('cuda:2')
-        x_token_type_ids = x["token_type_ids"][conv_indices_to_keep].to(device_bert) # [#comments, 100]
-        x_attention_mask = x["attention_mask"][conv_indices_to_keep].to(device_bert) # [#comments, 100]
-        x_input_ids = x["input_ids"][conv_indices_to_keep].to(device_bert) # [#comments, 100]
+        texts = []
+        for i in conv_indices_to_keep:
+            texts.append(data.x_text[i][0]['body'])
+        y = data.y
+
+        labels = y.long().to(device)
+        encodings = self.tokenizer(texts, truncation=True, padding='max_length', max_length=300, return_tensors='pt').to(device_bert)
+
         self.text_model = self.text_model.to(device_bert)
+
         bert_output = self.text_model(
-            token_type_ids=x_token_type_ids,
-            attention_mask=x_attention_mask,
-            input_ids=x_input_ids,
+            token_type_ids=encodings["token_type_ids"],
+            attention_mask=encodings["attention_mask"],
+            input_ids=encodings["input_ids"],
         ).last_hidden_state # [#comments, 100, 768]
+
+        #x_token_type_ids = x["token_type_ids"][conv_indices_to_keep].to(device_bert) # [#comments, 100]
+        #x_attention_mask = x["attention_mask"][conv_indices_to_keep].to(device_bert) # [#comments, 100]
+        #x_input_ids = x["input_ids"][conv_indices_to_keep].to(device_bert) # [#comments, 100]
+        
+        #bert_output = self.text_model(
+        #    token_type_ids=x_token_type_ids,
+        #    attention_mask=x_attention_mask,
+        #    input_ids=x_input_ids,
+        #).last_hidden_state # [#comments, 100, 768]
         cls_embeddings = bert_output[:, 0, :] 
 
         # Add node features: in CPU
@@ -440,9 +548,18 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
     elif model_name == "roberta-class":
         model = RoBERTaHateClassifier()
     elif model_name == "bert-class":
+        custom_config = AutoConfig.from_pretrained(
+            "bert-base-uncased",
+            num_labels=2,                    
+            hidden_dropout_prob=0.3,         
+            attention_probs_dropout_prob=0.3 
+        )
         model = AutoModelForSequenceClassification.from_pretrained(
-        "bert-base-uncased", num_labels=2
-    )
+            "bert-base-uncased",
+            config=custom_config
+        )
+    elif model_name == "bert-concat":
+        model = BERTConcat()
     elif model_name == 'fb-roberta-hate':
         model = AutoModelForSequenceClassification.from_pretrained("facebook/roberta-hate-speech-dynabench-r4-target")
     elif model_name == 'img-text-transformer':
@@ -461,7 +578,8 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
     elif model_name == 'gat-test':
         undirected = args.undirected
         temp_edges = args.temp_edges
-        model = GATTest(undirected=undirected, temp_edges=temp_edges)
+        num_layers = args.num_layers
+        model = GATTest(undirected=undirected, temp_edges=temp_edges, num_layers=num_layers)
     elif model_name == 'hetero-graph':
         undirected = args.undirected
         temp_edges = args.temp_edges

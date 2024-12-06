@@ -56,14 +56,14 @@ def temporal_edges(temporal_info, depths, vid2num, undirected=False):
 
   return temporal_edges
 
-def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True):
+def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True, new_trim=True):
   masked_index = mask.nonzero(as_tuple=True)[0]
   x_node, _, _, label = x[masked_index]
   my_id = x_node['id']
 
   assert label != 'NA', 'NA label should not be assigned to a node we train on'
   
-  posts_ids, nodes, relations, depths, edge_list, vid2num, vnum2id, temporal_info, num_nodes, conv_indices_to_keep  = preprocess(x, masked_index, undirected, trim)
+  posts_ids, nodes, relations, depths, edge_list, vid2num, vnum2id, temporal_info, num_nodes, conv_indices_to_keep  = preprocess(x, masked_index, undirected, trim, new_trim)
   #vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
   #edges_dic_num = convert_to_num(edges_dic, vid2num)
   my_new_mask_idx = vid2num[my_id]
@@ -77,13 +77,13 @@ def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True):
     #edge_list = list(set(edge_list + tempo_edges))
   return nodes, edges_dic_num, conv_indices_to_keep, my_new_mask_idx
 
-def get_hetero_graph(x, mask, with_temporal_edges=False, trim=True):
+def get_hetero_graph(x, mask, with_temporal_edges=False, trim=True, new_trim=True):
   masked_index = mask.nonzero(as_tuple=True)[0]
   x_node, _, _, label = x[masked_index]
   my_id = x_node['id']
   assert label != 'NA', 'NA label should not be assigned to a node we train on'
   
-  posts_ids, comments_nodes, relations, depths, comments_edge_list, vid2num, vnum2id, temporal_info, num_comment_nodes, conv_indices_to_keep  = preprocess(x, masked_index, False, trim)
+  posts_ids, comments_nodes, relations, depths, comments_edge_list, vid2num, vnum2id, temporal_info, num_comment_nodes, conv_indices_to_keep  = preprocess(x, masked_index, False, trim, new_trim)
   my_new_mask_idx = vid2num[my_id]
   #vertices_dic, edges_dic = create_graphs(posts_ids, nodes, relations)
   #edges_dic_num = convert_to_num(edges_dic, vid2num)
@@ -146,7 +146,7 @@ def merge_dictionaries(dict1, dict2):
     return merged_dict
 
 
-def preprocess(conversation, mask_index, undirected=False, trim=True):
+def preprocess(conversation, mask_index, undirected=False, trim=True, new_trim=True):
   edge_set = set()
   nodes = {}
   relations = {}
@@ -163,6 +163,9 @@ def preprocess(conversation, mask_index, undirected=False, trim=True):
 
   if trim:
     ids_to_keep = trim_tree(conversation, mask_index)
+
+  target_node = conversation[mask_index]
+  target_id = target_node[0]['id']
 
   for i, comment_obj in enumerate(conversation):
     x, _, _, _ = comment_obj
@@ -220,9 +223,16 @@ def preprocess(conversation, mask_index, undirected=False, trim=True):
         depths[key] = (parent_depth + 1, parent_id, my_root)
       else:
         RuntimeError('error the parent depth was not filled in the dict...')
+      # add an edge from parent post to child
       edge_set.add((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
-      # add an edge from the initial post to this node
-      edge_set.add((vertex_id_to_num[post_id], vertex_id_to_num[key]))
+    
+      # /!\ Change in the tree trimming strategy: only add an edge from initial post to the target comment
+      # before we did not have this condition and we were adding an edge from the initial post to all nodes in the trimmed tree
+      if new_trim:
+        if key == target_id:
+          edge_set.add((vertex_id_to_num[post_id], vertex_id_to_num[key]))
+      else:
+        edge_set.add((vertex_id_to_num[post_id], vertex_id_to_num[key]))
 
       if undirected: # add revert all edges
         edge_set.add((vertex_id_to_num[key], vertex_id_to_num[parent_id]))

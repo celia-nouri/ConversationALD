@@ -68,6 +68,20 @@ def get_criterion(device, balanced=True):
     else:
         return nn.CrossEntropyLoss()
 
+def get_context_texts(conv_array, index):
+    my_id = conv_array[index][0]['id']
+    parent_id = conv_array[index][0]['parent_id']
+
+    parent_id, parent_text, post_id, post_text = "", "", "", ""
+    for i, comment in enumerate(conv_array):
+        if parent_id == comment[0]['id']:
+            parent_text = comment[0]['body']
+        if not parent_id or parent_id == "" or parent_id == "NA":
+            post_id = comment[0]['id']
+            post_text = comment[0]['body']
+    if post_id == parent_id:
+        return [parent_text]
+    return [post_text, parent_text]
 
 # Define validation function
 def evaluate_model(model, loader, criterion, model_name, dataset_name, device, output_file="", tokenizer=None):
@@ -83,7 +97,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
             for data in loader:
                 with autocast():
                     y, y_pred = run_model_pred(model, data, model_name, dataset_name, device, tokenizer)
-                    if model_name == 'fb-roberta-hate' or model_name =='bert-class':
+                    if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat":
                         loss = y_pred.loss
                         logits = y_pred.logits
 
@@ -110,23 +124,34 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
                         # Accumulate loss, corrects, true and predicted labels 
                         running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
                     if outfile:
-                        outfile.write(f"{pred_label} \t {y_pred} \t {y}")
-                        if model_name == "bert-class":
+                        my_output = {'pred_label' : y_pred}
+                        if model_name == "bert-class" or model_name == "bert-concat":
                             masked_index = data.y_mask.nonzero(as_tuple=True)[0]
                             text = data.x_text[masked_index][0]['body'] 
-                            outfile.write(f" \t {text} \t {masked_index} \n")
+                            my_output['text'] = text
+                            my_output['masked_index'] = masked_index
                         elif model_name == 'gat-test':
                             masked_index = data.y_mask.nonzero(as_tuple=True)[0]
-                            text = data.x_text[masked_index]
+                            text = data.x_text[masked_index][0]["body"]
                             _, edges_dic_num, conv_indices_to_keep, my_new_mask_idx = get_graph(data.x_text, data["y_mask"], with_temporal_edges=False, undirected=False)
-                            outfile.write(f" \t {text} \t {masked_index} \t {my_new_mask_idx} \t {conv_indices_to_keep} \t {edges_dic_num} \t {data.x_text} \n")
+                            texts = [data.x_text[i][0]["body"] for i in conv_indices_to_keep]
+                            my_output['text'] = text
+                            my_output['texts'] = texts
+                            my_output['conv_indices_to_keep'] = conv_indices_to_keep
                         elif model_name == 'hetero-graph':
                             masked_index = data.y_mask.nonzero(as_tuple=True)[0]
                             text = data.x_text[masked_index]
                             mask = data["y_mask"]
-                            num_comment_nodes, comments_edges_dic_num, num_users, user_to_comments_edges, conv_indices_to_keep, my_new_mask_idx = get_hetero_graph(data.x_text, mask, with_temporal_edges=False)
-                            outfile.write(f" \t {text} \t {masked_index} \t {my_new_mask_idx} \t {conv_indices_to_keep} \t {comments_edges_dic_num} \t {user_to_comments_edges} \t {num_comment_nodes} \t {num_users} \t {data.x_text} \n")       
-            
+                            num_comment_nodes, _, num_users, _, conv_indices_to_keep, my_new_mask_idx = get_hetero_graph(data.x_text, mask, with_temporal_edges=False)
+                            texts = [data.x_text[i][0]["body"] for i in conv_indices_to_keep]
+                            my_output['text'] = text
+                            my_output['texts'] = texts
+                            my_output['conv_indices_to_keep'] = conv_indices_to_keep
+                            my_output['num_comment_nodes'] = num_comment_nodes
+                            my_output['num_users'] = num_users
+                        json.dump(my_output, outfile)
+                        outfile.write('\n')
+                                        
     # Calculate average loss
     avg_loss = running_loss / len(loader)
     accuracy = float(running_corrects) / len(loader)
@@ -172,6 +197,14 @@ def run_model_pred(model, data, model_name, dataset_name, device, tokenizer=None
         labels = y.long().to(device)
         encoding = tokenizer(text, truncation=True, padding='max_length', max_length=300, return_tensors='pt').to(device)
         y_pred = model(input_ids=encoding['input_ids'], attention_mask=encoding['attention_mask'], labels=labels)
+
+    elif model_name == "bert-concat":
+        y = data.y
+        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+        text = data.x_text[masked_index][0]['body']
+        context_texts = get_context_texts(data.x_text, masked_index)
+        labels = y.long().to(device)
+        y_pred = model(context_texts, text, labels=labels)
 
         #masked_index = data.y_mask.nonzero(as_tuple=True)[0]
         #x = data.x
@@ -263,7 +296,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
     num_epochs, model_name, validation, size = args.epochs, args.model, args.validation, args.size
     print("Train: epochs=", num_epochs, ", dataset_name=hateful_discussions", ", model=", model_name)
     #model.to(device)
-    best_val_acc = float('-inf')
+    best_val_f1 = float('-inf')
     best_model = model 
     # Patience is the maximum number of epoch with decaying validation scores we will wait for, before early stopping the training
     patience = 20
@@ -271,8 +304,9 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
     # Generate a unique timestamp string
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     model_check_path = f"./models/checkpoints/{timestamp}_{model_name}_{size}.pt"
+    print(f"Saving model to ", model_check_path)
     scaler = GradScaler()
-    accumulation_steps = 8
+    accumulation_steps = 16
     tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     # Training loop
     for epoch in range(num_epochs):
@@ -291,7 +325,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
             with autocast():
                 y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device, tokenizer)
                 y = y.to(device)
-                if model_name == 'fb-roberta-hate' or model_name =='bert-class':
+                if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat":
                     labels = y.long().to(device)
                     logits = y_pred.logits.to(device)
                     loss = criterion(logits, labels).to(device)
@@ -346,7 +380,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 "val_accuracy": val_accuracy,
                 "val_precision": val_precision,
                 "val_recall": val_recall,
-                "val_f1": val_accuracy
+                "val_f1": val_f1
             })
             
             print(f"Epoch [{epoch + 1}/{num_epochs}], Validation Loss: {avg_val_loss:.4f}, "
@@ -354,9 +388,9 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                 f"Val Recall: {val_recall:.4f}, Val F1 Score: {val_f1:.4f}")
             
             # Update best validation f1 score, best model and save checkpoint
-            if val_accuracy > best_val_acc:
-                print("Replacing best validation accuracy score from ", best_val_acc , " to ", val_f1)
-                best_val_acc = val_accuracy
+            if val_f1 > best_val_f1:
+                print("Replacing best validation F1 score from ", best_val_f1 , " to ", val_f1)
+                best_val_f1 = val_f1
                 best_model = model
                 trigger_times = 0
                 torch.save(model.state_dict(), model_check_path)
