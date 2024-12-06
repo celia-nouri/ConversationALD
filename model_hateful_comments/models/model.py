@@ -4,7 +4,7 @@ from torch_geometric.nn import RGCNConv, GraphConv, GATConv, to_hetero
 from torch_geometric.data import Data, HeteroData
 import torch.nn as nn
 import torch.nn.functional as F
-from transformers import AutoModel, DistilBertModel, RobertaModel, AutoModelForSequenceClassification, AutoTokenizer, AutoConfig
+from transformers import AutoModel, DistilBertModel, RobertaModel, AutoModelForSequenceClassification, AutoTokenizer, AutoConfig, LongformerTokenizer, LongformerModel
 from utils.construct_graph import get_graph, get_hetero_graph
 from torchsummary import summary
 
@@ -12,7 +12,7 @@ from models.multimodal_transformer import GraphormerModel, GraphormerEncoder
 
 
 
-all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "bert-concat", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test", "hetero-graph"]
+all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "bert-concat", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test", "hetero-graph", "longform-class", "xlmr-class"]
 #var tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased', truncation=True, do_lower_case=True);
 
 # DistilBERT Classifier model 
@@ -558,6 +558,33 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
             "bert-base-uncased",
             config=custom_config
         )
+    elif model_name == "longform-class":
+        custom_config = AutoConfig.from_pretrained(
+            "allenai/longformer-base-4096",  # Longformer model
+            num_labels=2,                    # Number of output labels for classification
+            hidden_dropout_prob=0.3,         # Dropout for hidden layers
+            attention_probs_dropout_prob=0.3 # Dropout for attention layers
+        )
+
+        # Load Longformer model with the custom configuration
+        model = AutoModelForSequenceClassification.from_pretrained(
+            "allenai/longformer-base-4096",  # Longformer model
+            config=custom_config
+        )
+    elif model_name == "xlmr-class":
+        custom_config = AutoConfig.from_pretrained(
+            "xlm-roberta-base",               # XLM-R model
+            num_labels=2,                     # Number of output labels for classification
+            hidden_dropout_prob=0.3,          # Dropout for hidden layers
+            attention_probs_dropout_prob=0.3  # Dropout for attention layers
+        )
+
+        # Load XLM-R model with the custom configuration
+        model = AutoModelForSequenceClassification.from_pretrained(
+            "xlm-roberta-base",  # XLM-R model
+            config=custom_config
+        )
+
     elif model_name == "bert-concat":
         model = BERTConcat()
     elif model_name == 'fb-roberta-hate':

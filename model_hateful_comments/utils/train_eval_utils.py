@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 from collections import Counter
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, LongformerTokenizer
 from models.model import all_model_names
 import wandb
 from tqdm import tqdm 
@@ -90,6 +90,12 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
     running_corrects = 0
     true_labels = []
     predicted_labels = []
+    if model_name == "longform-class":
+        tokenizer = LongformerTokenizer.from_pretrained("allenai/longformer-base-4096")
+    elif model_name == "xlmr-class":
+        tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
+    else:
+        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
     with torch.no_grad():
 
@@ -97,7 +103,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
             for data in loader:
                 with autocast():
                     y, y_pred = run_model_pred(model, data, model_name, dataset_name, device, tokenizer)
-                    if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat":
+                    if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class":
                         loss = y_pred.loss
                         logits = y_pred.logits
 
@@ -196,6 +202,20 @@ def run_model_pred(model, data, model_name, dataset_name, device, tokenizer=None
         text = data.x_text[masked_index][0]['body']
         labels = y.long().to(device)
         encoding = tokenizer(text, truncation=True, padding='max_length', max_length=300, return_tensors='pt').to(device)
+        y_pred = model(input_ids=encoding['input_ids'], attention_mask=encoding['attention_mask'], labels=labels)
+    elif model_name == "xlmr-class":
+        y = data.y
+        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+        text = data.x_text[masked_index][0]['body']
+        labels = y.long().to(device)
+        encoding = tokenizer(text, truncation=True, padding='max_length', max_length=512, return_tensors='pt').to(device)
+        y_pred = model(input_ids=encoding['input_ids'], attention_mask=encoding['attention_mask'], labels=labels)
+    elif model_name == "longform-class":
+        y = data.y
+        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+        text = data.x_text[masked_index][0]['body']
+        labels = y.long().to(device)
+        encoding = tokenizer(text, truncation=True, padding='max_length', max_length=4096, return_tensors='pt').to(device)
         y_pred = model(input_ids=encoding['input_ids'], attention_mask=encoding['attention_mask'], labels=labels)
 
     elif model_name == "bert-concat":
@@ -307,7 +327,12 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
     print(f"Saving model to ", model_check_path)
     scaler = GradScaler()
     accumulation_steps = 16
-    tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+    if model_name == "longform-class":
+        tokenizer = LongformerTokenizer.from_pretrained("allenai/longformer-base-4096")
+    elif model_name == "xlmr-class":
+        tokenizer = AutoTokenizer.from_pretrained("xlm-roberta-base")
+    else:
+        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
     # Training loop
     for epoch in range(num_epochs):
         running_loss = float(0)
@@ -325,7 +350,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
             with autocast():
                 y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device, tokenizer)
                 y = y.to(device)
-                if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat":
+                if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class":
                     labels = y.long().to(device)
                     logits = y_pred.logits.to(device)
                     loss = criterion(logits, labels).to(device)
