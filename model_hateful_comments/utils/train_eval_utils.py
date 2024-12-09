@@ -8,6 +8,7 @@ from tqdm import tqdm
 from datetime import datetime
 from torch.cuda.amp import autocast, GradScaler
 from utils.construct_graph import get_graph, get_hetero_graph
+import json
 
 
 
@@ -117,9 +118,11 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
                         criterion = get_criterion(device).to(device)
                         loss = criterion(y_pred, y).to(device)
                         _, pred_label = torch.max(y_pred, dim=1)
+                        logits = y_pred
                         running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                             loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                         )
+                    
                     #elif model_name == 'gat-model':
                     #    y_pred = y_pred.squeeze(1)
                     #    loss = criterion(y_pred, y).to(device)
@@ -130,12 +133,13 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
                         # Accumulate loss, corrects, true and predicted labels 
                         running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
                     if outfile:
-                        my_output = {'pred_label' : y_pred}
-                        if model_name == "bert-class" or model_name == "bert-concat":
+                        my_output = {'pred_label' : pred_label.item(), 'y': y.item(), 'y_pred': logits.detach().cpu().numpy().tolist()}
+                        if model_name == "bert-class" or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class":
                             masked_index = data.y_mask.nonzero(as_tuple=True)[0]
                             text = data.x_text[masked_index][0]['body'] 
                             my_output['text'] = text
-                            my_output['masked_index'] = masked_index
+                            my_output['x'] = text = data.x_text[masked_index][0]
+                            my_output['masked_index'] = masked_index.detach().cpu().numpy().tolist() 
                         elif model_name == 'gat-test':
                             masked_index = data.y_mask.nonzero(as_tuple=True)[0]
                             text = data.x_text[masked_index][0]["body"]

@@ -97,7 +97,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
 
     models_string = json.dumps(all_model_names)
-    parser.add_argument('--model', type=str, default='gat-test', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--model', type=str, default='xlmr-class', help='the model to use, can take one of the following values: ' + models_string)
     parser.add_argument('--num-layers', type=int, default=4, help='the number of GAT layers in graph models')
     parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
@@ -156,4 +156,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args() 
 
-    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/20241118_025453_gat-test_cad.pt" , args)
+    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/20241208_214215_xlmr-class_cad.pt" , args)
