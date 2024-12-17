@@ -205,8 +205,8 @@ def run_model_pred(model, data, model_name, dataset_name, device, tokenizer=None
         masked_index = data.y_mask.nonzero(as_tuple=True)[0]
         text = data.x_text[masked_index][0]['body']
         labels = y.long().to(device)
-        encoding = tokenizer(text, truncation=True, padding='max_length', max_length=300, return_tensors='pt').to(device)
-        y_pred = model(input_ids=encoding['input_ids'], attention_mask=encoding['attention_mask'], labels=labels)
+        encoding = tokenizer(text, truncation=True, padding='max_length', max_length=512, return_tensors='pt').to(device)
+        y_pred = model(token_type_ids=encoding.get("token_type_ids", None), input_ids=encoding['input_ids'], attention_mask=encoding['attention_mask'], labels=labels)
     elif model_name == "xlmr-class":
         y = data.y
         masked_index = data.y_mask.nonzero(as_tuple=True)[0]
@@ -219,7 +219,16 @@ def run_model_pred(model, data, model_name, dataset_name, device, tokenizer=None
         masked_index = data.y_mask.nonzero(as_tuple=True)[0]
         text = data.x_text[masked_index][0]['body']
         labels = y.long().to(device)
-        encoding = tokenizer(text, truncation=True, padding='max_length', max_length=4096, return_tensors='pt').to(device)
+        encoding = tokenizer(text, truncation=True, padding='max_length', max_length=512, return_tensors='pt').to(device)
+        global_attention_mask = torch.zeros_like(encoding["attention_mask"])
+        global_attention_mask[:, 0] = 1  # Apply global attention to the first token
+        y_pred = model(input_ids=encoding['input_ids'], attention_mask=encoding['attention_mask'], global_attention_mask=global_attention_mask, labels=labels)
+    elif model_name == "roberta-class":
+        y = data.y
+        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+        text = data.x_text[masked_index][0]['body']
+        labels = y.long().to(device)
+        encoding = tokenizer(text, truncation=True, padding='max_length', max_length=512, return_tensors='pt').to(device)
         y_pred = model(input_ids=encoding['input_ids'], attention_mask=encoding['attention_mask'], labels=labels)
 
     elif model_name == "bert-concat":

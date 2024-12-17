@@ -78,9 +78,18 @@ class SimpleTextClassifier(torch.nn.Module):
 
 
 class BERTConcat(nn.Module):
-    def __init__(self, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.3, attention_probs_dropout_prob=0.3, max_length=512):
+    def __init__(self, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.3, attention_probs_dropout_prob=0.3, max_length=4096):
         super(BERTConcat, self).__init__()
         device = get_device()
+        
+        self.model_name = "bert"
+        if "longformer" in pretrained_model_name:
+            self.model_name = "longformer"
+        elif "xlm-roberta" in pretrained_model_name:
+            self.model_name = "xlm-roberta"
+        elif "roberta" in pretrained_model_name:
+            self.model_name = "roberta"
+        print(f"initializing Text Concat model with {self.model_name} text model, pretrained model name is {pretrained_model_name}")
         
         # Define a custom configuration for BERT with dropout
         self.config = AutoConfig.from_pretrained(
@@ -99,28 +108,44 @@ class BERTConcat(nn.Module):
         # Tokenizer for encoding text inputs
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
     
-    def forward(self, context_texts, target_text, labels):
+    def forward(self, context_texts, target_text, labels, max_length=4096):
         device = get_device()
         # Combine context texts and target text using the [SEP] token
         input_text = self.prepare_input(context_texts, target_text)
         
         # Tokenize and encode the concatenated input text
-        encoding = self.tokenizer(
+        encodings = self.tokenizer(
             input_text,
             padding='max_length',  # Pads up to the max length
             truncation=True,       # Truncate context if needed
             max_length=max_length,        # BERT's max input size
             return_tensors='pt',   # Return PyTorch tensors
         )
-        encoding = encoding.to(device)
+        encodings = encodings.to(device)
+        shape_encodings = encodings["input_ids"].shape
+        print(f"input ids shape for {self.model_name}'s tokenizer: {shape_encodings}")
+        # Handle model-specific inputs
+        if self.model_name == "longformer":
+            # For Longformer, include global attention
+            global_attention_mask = torch.zeros_like(encodings["attention_mask"])
+            global_attention_mask[:, 0] = 1  # Apply global attention to the first token
         
-        input_ids = encoding['input_ids']
-        attention_mask = encoding['attention_mask']
-        
-        # Pass the inputs through BERT
-        outputs = self.text_model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-        
-        return outputs
+            model_output = self.text_model(
+                input_ids=encodings["input_ids"],
+                attention_mask=encodings["attention_mask"],
+                global_attention_mask=global_attention_mask, 
+                labels=labels
+            )  # Shape: [#comments, 100, hidden_dim]
+        else:
+            # For BERT, RoBERTa, and XLM-R
+            model_output = self.text_model(
+                token_type_ids=encodings.get("token_type_ids", None),
+                attention_mask=encodings["attention_mask"],
+                input_ids=encodings["input_ids"], 
+                labels=labels
+            )  # Shape: [#comments, 100, hidden_dim]
+
+        return model_output
     
     def prepare_input(self, context_texts, target_text, max_length=512):
         # Prepare the concatenated input text with [SEP] tokens
@@ -229,7 +254,7 @@ def classify_node_features(emotions, seq_lengths, umask, matchatt_layer, linear_
 
 # New graph model
 class GATModel(torch.nn.Module):
-    def __init__(self in_channels=768, hidden_channels=768, num_heads_1=8, num_heads_2=1, dropout_1=0.6, dropout_2=0.6, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.2, attention_probs_dropout_prob=0.2):
+    def __init__(self, in_channels=768, hidden_channels=768, num_heads_1=8, num_heads_2=1, dropout_1=0.6, dropout_2=0.6, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.2, attention_probs_dropout_prob=0.2):
         super(GATModel, self).__init__()
         #self.fc1 = nn.Linear(in_channels, hidden_channels)
         self.gat1 = GATConv(in_channels, hidden_channels, heads=num_heads_1, dropout=dropout_1)
@@ -368,6 +393,7 @@ class GATTest(torch.nn.Module):
         elif "roberta" in pretrained_model_name:
             self.model_name = "roberta"
         print(f"initializing gat-test model with {self.model_name} text model, pretrained model name is {pretrained_model_name}")
+        device = get_device()
 
         # Define a custom configuration for BERT with dropout
         self.config = AutoConfig.from_pretrained(
@@ -380,35 +406,31 @@ class GATTest(torch.nn.Module):
         model = AutoModelForSequenceClassification.from_pretrained(
             pretrained_model_name,
             config=self.config
-        ).to(device)
-
-        self.model = model
+        )
 
         # Extract model-specific components
         if self.model_name == "longformer":
-            self.text_model = model.longformer
+            self.text_model = model.longformer.to(device)
         elif self.model_name == "bert":
-            self.text_model = model.bert
+            self.text_model = model.bert.to(device)
         elif self.model_name == "roberta":
-            self.text_model = model.roberta
+            self.text_model = model.roberta.to(device)
         elif self.model_name == "xlm-roberta":
-            self.text_model = model.roberta  # XLM-Roberta shares architecture with Roberta
+            self.text_model = model.roberta.to(device)  # XLM-Roberta shares architecture with Roberta
 
         # Other shared components
-        self.text_pooler = getattr(self.text_model, "pooler", None)  # Pooler (if available)
-        self.node_classifier = model.classifier
-        self.dropout = getattr(model, "dropout", None)
+        #self.text_pooler = getattr(self.text_model, "pooler", None)  # Pooler (if available)
+        self.node_classifier = model.classifier.to(device)
+        #self.dropout = getattr(model, "dropout", None)
                 
         # Tokenizer for encoding text inputs
         self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
-
 
         self.undirected = undirected
         self.temp_edges = temp_edges
         self.num_layers = num_layers
         print('Inside GATTEST init num layers is ', self.num_layers)
     
-
 
     def forward(self, data, max_length=512):   
         # Save the original batch size
@@ -432,34 +454,30 @@ class GATTest(torch.nn.Module):
         texts = []
         for i in conv_indices_to_keep:
             texts.append(data.x_text[i][0]['body'])
+        print(f"Number of comments kept in conversation: {len(conv_indices_to_keep)}")
 
         labels = y.long().to(device)
 
 
         encodings = self.tokenizer(texts, truncation=True, padding='max_length', max_length=max_length, return_tensors='pt').to(device)
 
-        # Tokenized input data
-        x_token_type_ids = encodings.get("token_type_ids", None)  # Optional for models without token types
-        x_attention_mask = encodings["attention_mask"]  # Required for all models
-        x_input_ids = encodings["input_ids"]  # Input IDs
-
         # Handle model-specific inputs
         if self.model_name == "longformer":
             # For Longformer, include global attention
-            global_attention_mask = torch.zeros_like(x_attention_mask)
+            global_attention_mask = torch.zeros_like(encodings["attention_mask"])
             global_attention_mask[:, 0] = 1  # Apply global attention to the first token
 
             model_output = self.text_model(
-                input_ids=x_input_ids,
-                attention_mask=x_attention_mask,
+                input_ids=encodings["input_ids"],
+                attention_mask=encodings["attention_mask"],
                 global_attention_mask=global_attention_mask
             ).last_hidden_state  # Shape: [#comments, 100, hidden_dim]
         else:
             # For BERT, RoBERTa, and XLM-R
             model_output = self.text_model(
-                token_type_ids=x_token_type_ids,
-                attention_mask=x_attention_mask,
-                input_ids=x_input_ids
+                token_type_ids=encodings.get("token_type_ids", None),
+                attention_mask=encodings["attention_mask"],
+                input_ids=encodings["input_ids"]
             ).last_hidden_state  # Shape: [#comments, 100, hidden_dim]
 
         
@@ -495,13 +513,16 @@ class GATTest(torch.nn.Module):
         concat_out = torch.cat([x_gemb, x_emb], dim=1)
 
         # SHAPE OF X: [#vertices, 768=input_dim] --> [#vertices, 64=hidden_dim] --> [#vertices, 1] --> [#vertices]
-        
 
         # Classification layer (binary classification)
         out = self.fc(concat_out) 
         #out = self.text_pooler(out)
         #out = self.bert_dropout(out)
-        out = self.node_classifier(out)    
+        if "roberta" in self.model_name or "longformer" == self.model_name:
+            out = out.unsqueeze(1)  # Add sequence dimension: [batch_size, seq_length=1, hidden_dim]
+            out = self.node_classifier(out).squeeze(1)  # Remove sequence dimension after classification
+        else:
+            out = self.node_classifier(out)  # Directly use for BERT
         return out
 
 
@@ -661,7 +682,16 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
     elif model_name == "text-class":
         model = SimpleTextClassifier()
     elif model_name == "roberta-class":
-        model = RoBERTaHateClassifier()
+        custom_config = AutoConfig.from_pretrained(
+            "bert-base-uncased",
+            num_labels=2,                    
+            hidden_dropout_prob=0.3,         
+            attention_probs_dropout_prob=0.3 
+        )
+        model = AutoModelForSequenceClassification.from_pretrained(
+            "roberta-base",
+            config=custom_config
+        )
     elif model_name == "bert-class":
         custom_config = AutoConfig.from_pretrained(
             "bert-base-uncased",
@@ -701,7 +731,7 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
         )
 
     elif model_name == "bert-concat":
-        model = BERTConcat()
+        model = BERTConcat(pretrained_model_name=pretrained_model_name)
     elif model_name == 'fb-roberta-hate':
         model = AutoModelForSequenceClassification.from_pretrained("facebook/roberta-hate-speech-dynabench-r4-target")
     elif model_name == 'img-text-transformer':
