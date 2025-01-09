@@ -56,7 +56,7 @@ def temporal_edges(temporal_info, depths, vid2num, undirected=False):
 
   return temporal_edges
 
-def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True, new_trim=True):
+def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True, new_trim=False):
   masked_index = mask.nonzero(as_tuple=True)[0]
   x_node, _, _, label = x[masked_index]
   my_id = x_node['id']
@@ -77,7 +77,7 @@ def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True, n
     #edge_list = list(set(edge_list + tempo_edges))
   return nodes, edges_dic_num, conv_indices_to_keep, my_new_mask_idx
 
-def get_hetero_graph(x, mask, with_temporal_edges=False, trim=True, new_trim=True):
+def get_hetero_graph(x, mask, with_temporal_edges=False, trim=True, new_trim=False):
   masked_index = mask.nonzero(as_tuple=True)[0]
   x_node, _, _, label = x[masked_index]
   my_id = x_node['id']
@@ -146,7 +146,7 @@ def merge_dictionaries(dict1, dict2):
     return merged_dict
 
 
-def preprocess(conversation, mask_index, undirected=False, trim=True, new_trim=True):
+def preprocess(conversation, mask_index, undirected=False, trim=True, new_trim=False):
   edge_set = set()
   nodes = {}
   relations = {}

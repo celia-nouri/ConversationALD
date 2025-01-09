@@ -5,11 +5,23 @@ from transformers import AdamW
 import torch.nn.functional as F
 from mydatasets.mydataloaders import get_pyg_data_loaders
 from models.model import get_model
-from fairseq.utils import get_available_activation_fns
 
 from utils.train_eval_utils import train
 import argparse
 
+from transformers import set_seed
+import torch
+import numpy as np
+import random
+
+def set_all_seeds(seed):
+    set_seed(seed)  # Hugging Face transformers
+    torch.manual_seed(seed)  # PyTorch
+    np.random.seed(seed)  # NumPy
+    random.seed(seed)  # Python random
+    torch.cuda.manual_seed_all(seed)  # CUDA
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 def run_experiments(args):
     model_name = args.model
@@ -19,6 +31,7 @@ def run_experiments(args):
     undirected = args.undirected
     temp_edges = args.temp_edges
     num_layers = args.num_layers
+    seed = args.seed
 
     learning_rate = args.lr
     weight_decay = args.wd    
@@ -31,8 +44,9 @@ def run_experiments(args):
         args.with_graph = False
 
     device = get_device()
-    print(f"Training {model_name} on {size} Hateful Discussions dataset with validation={validation}, for {n_epochs} epochs, a learning rate of {learning_rate} and weight decay of {weight_decay}...")
+    print(f"Training {model_name} with seed {seed} on {size} Hateful Discussions dataset with validation={validation}, for {n_epochs} epochs, a learning rate of {learning_rate} and weight decay of {weight_decay}...")
     print(f"Model hyperparams are num layers {num_layers}, undirected {undirected}, temporal edges {temp_edges}")
+
 
     # Log hyperparameters
     wandb.config = {
@@ -47,7 +61,9 @@ def run_experiments(args):
         "size": size,
         "validation": validation,
         "with_graph": args.with_graph,
+        "seed": seed,
     }    
+    set_all_seeds(seed)
 
     train_loader, valid_loader, test_loader = get_pyg_data_loaders(size, validation, 0) #get_data_loaders(size, validation)
     
@@ -72,11 +88,11 @@ if __name__ == "__main__":
     models_string = json.dumps(all_model_names)
     pretrained_model_string = json.dumps(all_base_pretrained_models)
     parser.add_argument('--model', type=str, default='gat-test', help='the model to use, can take one of the following values: ' + models_string)
-    # "bert-base-uncased", "bert-base-cased", "roberta-base", "xlm-roberta-base", "allenai/longformer-base-4096" 
-    parser.add_argument('--pretrained-model-name', type=str, default="allenai/longformer-base-4096", help='name for pretrained text model to use to generate text embeddings, can take one of the following values: ' + pretrained_model_string)
-    parser.add_argument('--undirected', type=bool, default=True, help='define the graph model as an undirected graph')
+    # "bert-base-uncased", "bert-base-cased", "roberta-base", "xlm-roberta-base", "allenai/longformer-base-4096", "answerdotai/ModernBERT-base", "answerdotai/ModernBERT-large" 
+    parser.add_argument('--pretrained-model-name', type=str, default="bert-base-uncased", help='name for pretrained text model to use to generate text embeddings, can take one of the following values: ' + pretrained_model_string)
+    parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
-    parser.add_argument('--num-layers', type=int, default=4, help='the number of GAT layers in graph models')
+    parser.add_argument('--num-layers', type=int, default=1, help='the number of GAT layers in graph models')
 
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
     parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
@@ -84,9 +100,10 @@ if __name__ == "__main__":
     parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
     parser.add_argument('--lr', type=float, default=3e-6, metavar='E', help='learning rate')
     parser.add_argument('--wd', type=float, default=0.1, metavar='E', help='weight decay')
+    # seeds = [42, 7, 123, 2025, 99]
+    parser.add_argument('--seed', type=int, default=99, help='seed for training reproduciability')
 
     parser.add_argument('--enable-images', type=bool, default=True, metavar='E', help='rather or not to use the post images for training, defaults to True')
-
 
     parser.add_argument('--encoder-embed-dim', type=int, default=768, help='the dimension of the encoder embeddings')
     parser.add_argument('--encoder-layers', type=int, default=1, help='number of encoder layers')
@@ -129,7 +146,7 @@ if __name__ == "__main__":
     parser.add_argument("--apply-graphormer-init", action="store_true", help="use custom param initialization for Graphormer")
 
     # misc params
-    parser.add_argument("--activation-fn", choices=get_available_activation_fns(), default='relu', help="activation function to use")
+    parser.add_argument("--activation-fn", choices="", default='relu', help="activation function to use")
     parser.add_argument("--encoder-normalize-before", action="store_true", help="apply layernorm before each encoder block")
     parser.add_argument("--pre-layernorm", action="store_true", help="apply layernorm before self-attention and ffn. Without this, post layernorm will used")
 

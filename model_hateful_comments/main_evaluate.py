@@ -7,7 +7,6 @@ from transformers import AdamW, AutoTokenizer
 import torch.nn.functional as F
 from mydatasets.mydataloaders import get_pyg_data_loaders
 from models.model import get_model
-from fairseq.utils import get_available_activation_fns
 
 from utils.train_eval_utils import evaluate_model, get_criterion
 import argparse
@@ -102,8 +101,8 @@ if __name__ == "__main__":
     parser.add_argument('--model', type=str, default='gat-test', help='the model to use, can take one of the following values: ' + models_string)
     parser.add_argument('--pretrained-model-name', type=str, default="allenai/longformer-base-4096", help='name for pretrained text model to use to generate text embeddings, can take one of the following values: ' + pretrained_model_string)
 
-    parser.add_argument('--num-layers', type=int, default=4, help='the number of GAT layers in graph models')
-    parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
+    parser.add_argument('--num-layers', type=int, default=3, help='the number of GAT layers in graph models')
+    parser.add_argument('--undirected', type=bool, default=True, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
     parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
@@ -154,10 +153,10 @@ if __name__ == "__main__":
     parser.add_argument("--apply-graphormer-init", action="store_true", help="use custom param initialization for Graphormer")
 
     # misc params
-    parser.add_argument("--activation-fn", choices=get_available_activation_fns(), default='relu', help="activation function to use")
+    parser.add_argument("--activation-fn", choices="", default='relu', help="activation function to use")
     parser.add_argument("--encoder-normalize-before", action="store_true", help="apply layernorm before each encoder block")
     parser.add_argument("--pre-layernorm", action="store_true", help="apply layernorm before self-attention and ffn. Without this, post layernorm will used")
 
     args = parser.parse_args() 
 
-    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/20241216_003629_gat-test_cad.pt" , args)
+    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/20241230_090636_gat-test_cad.pt" , args)

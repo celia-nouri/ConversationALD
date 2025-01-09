@@ -84,6 +84,21 @@ def get_context_texts(conv_array, index):
         return [parent_text]
     return [post_text, parent_text]
 
+
+def get_post_parent(conv_array, index):
+    my_id = conv_array[index][0]['id']
+    parent_id = conv_array[index][0]['parent_id']
+
+    parent_id, parent_text, post_id, post_text = "", "", "", ""
+    for i, comment in enumerate(conv_array):
+        if parent_id == comment[0]['id']:
+            parent_text = comment[0]['body']
+        if not parent_id or parent_id == "" or parent_id == "NA":
+            post_id = comment[0]['id']
+            post_text = comment[0]['body']
+
+    return [post_text, parent_text]
+
 # Define validation function
 def evaluate_model(model, loader, criterion, model_name, dataset_name, device, output_file="", tokenizer=None):
     model.eval()
@@ -104,7 +119,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
             for data in loader:
                 with autocast():
                     y, y_pred = run_model_pred(model, data, model_name, dataset_name, device, tokenizer)
-                    if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class":
+                    if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
                         loss = y_pred.loss
                         logits = y_pred.logits
 
@@ -114,27 +129,23 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
                         running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                             loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                         )
-                    elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
+                    elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph' or model_name == "bertwithneighconcat":
                         criterion = get_criterion(device).to(device)
+                        y = y.long().to(device)
+                        logits = y_pred.to(device)
                         loss = criterion(y_pred, y).to(device)
                         _, pred_label = torch.max(y_pred, dim=1)
-                        logits = y_pred
                         running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                             loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                         )
                     
-                    #elif model_name == 'gat-model':
-                    #    y_pred = y_pred.squeeze(1)
-                    #    loss = criterion(y_pred, y).to(device)
-                    #    _, pred_label = torch.max(y_pred, dim=1)
-                    #    running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels)
                     else:
                         loss = criterion(y_pred, y).to(device)
                         # Accumulate loss, corrects, true and predicted labels 
                         running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
                     if outfile:
                         my_output = {'pred_label' : pred_label.item(), 'y': y.item(), 'y_pred': logits.detach().cpu().numpy().tolist()}
-                        if model_name == "bert-class" or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class":
+                        if model_name == "bert-class" or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
                             masked_index = data.y_mask.nonzero(as_tuple=True)[0]
                             text = data.x_text[masked_index][0]['body'] 
                             my_output['text'] = text
@@ -230,33 +241,29 @@ def run_model_pred(model, data, model_name, dataset_name, device, tokenizer=None
         labels = y.long().to(device)
         encoding = tokenizer(text, truncation=True, padding='max_length', max_length=512, return_tensors='pt').to(device)
         y_pred = model(input_ids=encoding['input_ids'], attention_mask=encoding['attention_mask'], labels=labels)
+    elif model_name == "modernbert-class":
+        y = data.y
+        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+        text = data.x_text[masked_index][0]['body']
+        labels = y.long().to(device)
+        encoding = tokenizer(text, truncation=True, padding='max_length', max_length=512, return_tensors='pt').to(device)
+        y_pred = model(input_ids=encoding['input_ids'], attention_mask=encoding['attention_mask'], labels=labels)
 
-    elif model_name == "bert-concat":
+    elif model_name == "bert-concat" :
         y = data.y
         masked_index = data.y_mask.nonzero(as_tuple=True)[0]
         text = data.x_text[masked_index][0]['body']
         context_texts = get_context_texts(data.x_text, masked_index)
         labels = y.long().to(device)
-        y_pred = model(context_texts, text, labels=labels)
+        y_pred = model(context_texts, text, labels=labels) 
 
-        #masked_index = data.y_mask.nonzero(as_tuple=True)[0]
-        #x = data.x
-        #y = data.y
-        #labels = y.long().to(device)
-        #input_ids = x["input_ids"][masked_index].to(device)
-        #attention_mask = x["attention_mask"][masked_index].to(device)
-        #y_pred = model(input_ids=input_ids, attention_mask=attention_mask, labels=labels)
-
-    elif model_name == "roberta-class":
-        if dataset_name == "hateful_discussions":
-            masked_index = data.y_mask.nonzero(as_tuple=True)[0]
-            x = data.x
-            input_ids = x["input_ids"][masked_index].to(device)
-            attention_mask = x["attention_mask"][masked_index].to(device)
-            y_pred = model(input_ids, attention_mask)
-            y_pred = y_pred.flatten()
-            y = data.y
-
+    elif model_name == "bertwithneighconcat":
+        y = data.y
+        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+        text = data.x_text[masked_index][0]['body']
+        context_texts = get_post_parent(data.x_text, masked_index)
+        labels = y.long().to(device)
+        y_pred = model(context_texts, text, labels=labels) 
 
     elif model_name == "fb-roberta-hate":
         if dataset_name == "hateful_discussions":
@@ -363,14 +370,14 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
             with autocast():
                 y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device, tokenizer)
                 y = y.to(device)
-                if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class":
+                if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
                     labels = y.long().to(device)
                     logits = y_pred.logits.to(device)
                     loss = criterion(logits, labels).to(device)
-                elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph':
-                    y_pred = y_pred.to(device)
-                    loss = criterion(y_pred, y).to(device)
-                    logits = y_pred
+                elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph' or model_name == "bertwithneighconcat":
+                    logits = y_pred.to(device)
+                    labels = y.long().to(device)
+                    loss = criterion(logits, labels).to(device)
                 loss = loss / accumulation_steps
             scaler.scale(loss).backward()
             # accumulate gradients for 
