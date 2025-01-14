@@ -530,7 +530,7 @@ class GATTest(torch.nn.Module):
         print('Inside GATTEST init num layers is ', self.num_layers)
     
 
-    def forward(self, data, max_length=512):   
+    def forward(self, data, max_length=512, gpu=True):   
         # Save the original batch size
         #batch_size = x.size(0)
         data = data.to('cpu')
@@ -555,8 +555,9 @@ class GATTest(torch.nn.Module):
         print(f"Number of comments kept in conversation: {len(conv_indices_to_keep)}")
 
         labels = y.long()
-
-        device_bert = torch.device('cuda:2')
+        device_bert = get_device()
+        if gpu: 
+            device_bert = torch.device('cuda:2')
         self.text_model = self.text_model.to(device_bert)
 
         encodings = self.tokenizer(texts, truncation=True, padding='max_length', max_length=max_length, return_tensors='pt').to(device_bert)
@@ -586,7 +587,9 @@ class GATTest(torch.nn.Module):
         cls_embeddings = model_output[:, 0, :] 
         edge_indices = edge_list
         
-        device_graph = torch.device('cuda:1')
+        device_graph = get_device() 
+        if gpu:
+            device_graph = torch.device('cuda:1')
 
         # if there are no edges in the graph, ignore the GAT layers
         if edge_indices.numel() == 0:
@@ -617,7 +620,9 @@ class GATTest(torch.nn.Module):
                     x = F.elu(x) 
                     x = self.gat4(x, edge_indices)
 
-        device_classification = torch.device('cuda:0')               
+        device_classification = get_device()
+        if gpu:
+            device_classification = torch.device('cuda:0')               
         x_gemb = x[my_new_mask_idx].unsqueeze(0).to(device_classification)
         x_emb = cls_embeddings[my_new_mask_idx].unsqueeze(0).to(device_classification)
 
