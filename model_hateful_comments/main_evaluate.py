@@ -99,10 +99,10 @@ if __name__ == "__main__":
     pretrained_model_string = json.dumps(all_base_pretrained_models)
 
     parser.add_argument('--model', type=str, default='gat-test', help='the model to use, can take one of the following values: ' + models_string)
-    parser.add_argument('--pretrained-model-name', type=str, default="allenai/longformer-base-4096", help='name for pretrained text model to use to generate text embeddings, can take one of the following values: ' + pretrained_model_string)
+    parser.add_argument('--pretrained-model-name', type=str, default="bert-base-uncased", help='name for pretrained text model to use to generate text embeddings, can take one of the following values: ' + pretrained_model_string)
 
-    parser.add_argument('--num-layers', type=int, default=3, help='the number of GAT layers in graph models')
-    parser.add_argument('--undirected', type=bool, default=True, help='define the graph model as an undirected graph')
+    parser.add_argument('--num-layers', type=int, default=1, help='the number of GAT layers in graph models')
+    parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
     parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
@@ -159,4 +159,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args() 
 
-    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/20241230_090636_gat-test_cad.pt" , args)
+    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/bot-gat-dir-1l-cad-512-99_3623091.pt" , args)

@@ -92,7 +92,7 @@ if __name__ == "__main__":
     parser.add_argument('--pretrained-model-name', type=str, default="bert-base-uncased", help='name for pretrained text model to use to generate text embeddings, can take one of the following values: ' + pretrained_model_string)
     parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
-    parser.add_argument('--num-layers', type=int, default=1, help='the number of GAT layers in graph models')
+    parser.add_argument('--num-layers', type=int, default=4, help='the number of GAT layers in graph models')
 
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
     parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
@@ -101,7 +101,7 @@ if __name__ == "__main__":
     parser.add_argument('--lr', type=float, default=3e-6, metavar='E', help='learning rate')
     parser.add_argument('--wd', type=float, default=0.1, metavar='E', help='weight decay')
     # seeds = [42, 7, 123, 2025, 99]
-    parser.add_argument('--seed', type=int, default=99, help='seed for training reproduciability')
+    parser.add_argument('--seed', type=int, default=7, help='seed for training reproduciability')
 
     parser.add_argument('--enable-images', type=bool, default=True, metavar='E', help='rather or not to use the post images for training, defaults to True')
 
