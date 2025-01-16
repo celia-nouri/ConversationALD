@@ -3,15 +3,14 @@
 # Launch SLURM parameters
 
 #SBATCH --cpus-per-gpu=16        # Number of cpus per GPU card (>1 if multi-threaded tasks)
-#SBATCH --partition=almanach   # Name of the partition 
-#SBATCH --account=almanach
+#SBATCH --partition=gpu   # Name of the partition 
 #SBATCH --gres=gpu:3   # Number and type of GPU cards and type allocated rtx8000
 #SBATCH --mem=4096G                # Total memory allocated
 #SBATCH --time=48:00:00 # total run time limit (HH:MM:SS)
 #SBATCH --output=%x_%j.out       # output file name
 #SBATCH --mem=0  # Request all available memory on the node
 
-#SBATCH --job-name=bot-gat-dir-4l-cad-512-7  # create a short name for your job bot-gat-dir-3l-cad-512-99
+#SBATCH --job-name=bert-ctxemb-small-512-42  # create a short name for your job bot-gat-dir-3l-cad-512-99
 #SBATCH --hint=multithread       # we get physical cores not logical
 
 #SBATCH --error=%x_%j.err    # error file name

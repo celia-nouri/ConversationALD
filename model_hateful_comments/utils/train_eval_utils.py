@@ -84,6 +84,20 @@ def get_context_texts(conv_array, index):
         return [parent_text]
     return [post_text, parent_text]
 
+def get_context_texts_all(conv_array, index):
+    my_id = conv_array[index][0]['id']
+    all_texts = []
+    for comment in conv_array:
+        if my_id != comment[0]['id']:
+            all_texts.append(comment[0]['body'])
+    return all_texts
+
+def get_all_texts(conv_array):
+    all_texts = []
+    for comment in conv_array:
+        all_texts.append(comment[0]['body'])
+    return all_texts
+
 
 def get_post_parent(conv_array, index):
     my_id = conv_array[index][0]['id']
@@ -119,7 +133,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
             for data in loader:
                 with autocast():
                     y, y_pred = run_model_pred(model, data, model_name, dataset_name, device, tokenizer)
-                    if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
+                    if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "bert-ctxemb" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
                         loss = y_pred.loss
                         logits = y_pred.logits
 
@@ -145,7 +159,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
                         running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
                     if outfile:
                         my_output = {'pred_label' : pred_label.item(), 'y': y.item(), 'y_pred': logits.detach().cpu().numpy().tolist()}
-                        if model_name == "bert-class" or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
+                        if model_name == "bert-class" or model_name == "bert-concat" or model_name == "bert-ctxemb" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
                             masked_index = data.y_mask.nonzero(as_tuple=True)[0]
                             text = data.x_text[masked_index][0]['body'] 
                             my_output['text'] = text
@@ -253,9 +267,17 @@ def run_model_pred(model, data, model_name, dataset_name, device, tokenizer=None
         y = data.y
         masked_index = data.y_mask.nonzero(as_tuple=True)[0]
         text = data.x_text[masked_index][0]['body']
-        context_texts = get_context_texts(data.x_text, masked_index)
+        context_texts = get_context_texts_all(data.x_text, masked_index)
         labels = y.long().to(device)
         y_pred = model(context_texts, text, labels=labels) 
+
+    elif model_name == "bert-ctxemb":
+        y = data.y
+        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+        text = data.x_text[masked_index][0]['body']
+        all_texts = get_all_texts(data.x_text)
+        labels = y.long().to(device)
+        y_pred = model(all_texts, text, labels=labels) 
 
     elif model_name == "bertwithneighconcat":
         y = data.y
@@ -370,7 +392,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
             with autocast():
                 y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device, tokenizer)
                 y = y.to(device)
-                if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
+                if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "bert-ctxemb" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
                     labels = y.long().to(device)
                     logits = y_pred.logits.to(device)
                     loss = criterion(logits, labels).to(device)

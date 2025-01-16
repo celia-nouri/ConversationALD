@@ -98,8 +98,8 @@ if __name__ == "__main__":
     models_string = json.dumps(all_model_names)
     pretrained_model_string = json.dumps(all_base_pretrained_models)
 
-    parser.add_argument('--model', type=str, default='gat-test', help='the model to use, can take one of the following values: ' + models_string)
-    parser.add_argument('--pretrained-model-name', type=str, default="bert-base-uncased", help='name for pretrained text model to use to generate text embeddings, can take one of the following values: ' + pretrained_model_string)
+    parser.add_argument('--model', type=str, default='bert-concat', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--pretrained-model-name', type=str, default="allenai/longformer-base-4096", help='name for pretrained text model to use to generate text embeddings, can take one of the following values: ' + pretrained_model_string)
 
     parser.add_argument('--num-layers', type=int, default=1, help='the number of GAT layers in graph models')
     parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
@@ -159,4 +159,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args() 
 
-    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/bot-gat-dir-1l-cad-512-99_3623091.pt" , args)
+    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/longconcat-all-prep2-cad-4096-42_3628032" , args)

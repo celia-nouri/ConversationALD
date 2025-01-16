@@ -10,7 +10,7 @@ from utils.construct_graph import get_graph, get_hetero_graph
 #from models.multimodal_transformer import GraphormerModel, GraphormerEncoder
 
 
-all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "bert-concat", "bertwithneighconcat", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test", "hetero-graph", "longform-class", "xlmr-class", "modernbert-class"]
+all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "bert-concat", "bertwithneighconcat", "bert-ctxemb", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test", "hetero-graph", "longform-class", "xlmr-class", "modernbert-class"]
 #var tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased', truncation=True, do_lower_case=True);
 all_base_pretrained_models = [
     "bert-base-uncased",        # BERT (English, uncased)
@@ -78,7 +78,7 @@ class SimpleTextClassifier(torch.nn.Module):
 
 
 class BERTConcat(nn.Module):
-    def __init__(self, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.3, attention_probs_dropout_prob=0.3, max_length=4096):
+    def __init__(self, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.3, attention_probs_dropout_prob=0.3):
         super(BERTConcat, self).__init__()
         device = get_device()
         
@@ -111,7 +111,7 @@ class BERTConcat(nn.Module):
     def forward(self, context_texts, target_text, labels, max_length=4096):
         device = get_device()
         # Combine context texts and target text using the [SEP] token
-        input_text = self.prepare_input(context_texts, target_text)
+        input_text = self.prepare_input_2(context_texts, target_text, max_length)
         
         # Tokenize and encode the concatenated input text
         encodings = self.tokenizer(
@@ -164,6 +164,14 @@ class BERTConcat(nn.Module):
         
         return input_text
 
+    def prepare_input_2(self, context_texts, target_text, max_length=512):
+        # Prepare the concatenated input text with [SEP] tokens
+        # Assuming context_texts is a list of strings
+        combined_context = " [SEP] ".join(context_texts)
+        input_text = target_text + " [SEP] " + combined_context
+        return input_text
+
+
 class BERTTextAndNeighbors(nn.Module):
     def __init__(self, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.3, attention_probs_dropout_prob=0.3, max_length=4096):
         super(BERTTextAndNeighbors, self).__init__()
@@ -208,8 +216,11 @@ class BERTTextAndNeighbors(nn.Module):
 
         self.node_classifier = model.classifier.to(device)
 
-    def forward(self, context_texts, target_text, labels, max_length=512):
+    def forward(self, context_texts, target_text, labels, max_length=512, all=True):
         device = get_device()
+        if all:
+            texts = context_texts + [target_text]
+
         assert len(context_texts) == 2
         
         # Combine the context and target texts
@@ -258,6 +269,131 @@ class BERTTextAndNeighbors(nn.Module):
         else:
             out = self.node_classifier(out)  # Directly use for BERT
         return out
+
+class BERTContextEmb(nn.Module):
+    def __init__(self, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.3, attention_probs_dropout_prob=0.3, max_length=512):
+        super(BERTContextEmb, self).__init__()
+        device = get_device()
+        self.fc_context = torch.nn.Linear(19200, 768).to(device)
+        self.fc_final = torch.nn.Linear(1536, 768).to(device)  # Output one value for binary classification
+        # Determine model type based on the pretrained model name
+        self.model_name = "bert"
+        if "longformer" in pretrained_model_name:
+            self.model_name = "longformer"
+        elif "xlm-roberta" in pretrained_model_name:
+            self.model_name = "xlm-roberta"
+        elif "roberta" in pretrained_model_name:
+            self.model_name = "roberta"
+
+        # Define a custom configuration for BERT with dropout
+        self.config = AutoConfig.from_pretrained(
+            pretrained_model_name,
+            num_labels=num_classes,  # Number of classes for classification
+            hidden_dropout_prob=hidden_dropout_prob,  # Dropout for hidden layers
+            attention_probs_dropout_prob=attention_probs_dropout_prob  # Dropout for attention layers
+        )
+        # Load pre-trained text model for sequence classification with the custom config
+        model = AutoModelForSequenceClassification.from_pretrained(
+            pretrained_model_name,
+            config=self.config
+        )
+
+        # Extract model-specific components
+        if self.model_name == "longformer":
+            self.text_model = model.longformer.to(device)
+        elif self.model_name == "bert":
+            self.text_model = model.bert.to(device)
+        elif self.model_name == "roberta":
+            self.text_model = model.roberta.to(device)
+        elif self.model_name == "xlm-roberta":
+            self.text_model = model.roberta.to(device)  # XLM-Roberta shares architecture with Roberta
+
+        print(f"initializing Context Embed model with {self.model_name} text model, pretrained model name is {pretrained_model_name}")
+        
+        # Tokenizer for encoding text inputs
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+
+        self.node_classifier = model.classifier.to(device)
+
+    def forward(self, all_conv_texts, target_text, labels, max_length=512):
+        device = get_device()
+        print("length all conv texts: ", len(all_conv_texts))
+        for _ in range(len(all_conv_texts), 25):
+            all_conv_texts.append("")
+        print("lafter append: ", len(all_conv_texts))
+    
+        assert len(all_conv_texts) == 25
+
+        # construct the conv context embeddings
+        cls_embeddings_list = []  # To store CLS embeddings for each text
+        for text in all_conv_texts:
+            # Tokenize and encode the input text
+            encodings = self.tokenizer(
+                text,
+                padding='max_length',
+                truncation=True,
+                max_length=max_length,
+                return_tensors='pt'
+            ).to(device)
+            
+            if self.model_name == "longformer":
+                global_attention_mask = torch.zeros_like(encodings["attention_mask"])
+                global_attention_mask[:, 0] = 1  # Apply global attention to the first token
+
+                model_output = self.text_model(
+                    input_ids=encodings["input_ids"],
+                    attention_mask=encodings["attention_mask"],
+                    global_attention_mask=global_attention_mask
+                ).last_hidden_state
+            else:
+                model_output = self.text_model(
+                    input_ids=encodings["input_ids"],
+                    attention_mask=encodings["attention_mask"],
+                    token_type_ids=encodings.get("token_type_ids", None)
+                ).last_hidden_state
+            
+            # Extract the CLS embedding (first token)
+            cls_embeddings = model_output[:, 0, :]
+            cls_embeddings_list.append(cls_embeddings)
+        
+        # Concatenate the CLS embeddings
+        concat_out = torch.cat(cls_embeddings_list, dim=1)  # Shape: [batch_size, 19200]
+        out_context = self.fc_context(concat_out)  # Shape: [batch_size, 768]
+
+        # generate target text embedding
+        target_encodings = self.tokenizer(
+            target_text,
+            padding='max_length',
+            truncation=True,
+            max_length=max_length,
+            return_tensors='pt'
+        ).to(device)
+            
+        if self.model_name == "longformer":
+            global_attention_mask = torch.zeros_like(encodings["attention_mask"])
+            global_attention_mask[:, 0] = 1  # Apply global attention to the first token
+
+            model_output = self.text_model(
+                input_ids=encodings["input_ids"],
+                attention_mask=encodings["attention_mask"],
+                global_attention_mask=global_attention_mask
+            ).last_hidden_state
+        else:
+            model_output = self.text_model(
+                input_ids=encodings["input_ids"],
+                attention_mask=encodings["attention_mask"],
+                token_type_ids=encodings.get("token_type_ids", None)
+            ).last_hidden_state
+        target_cls_embeddings = model_output[:, 0, :]
+        combined_embed = torch.cat([target_cls_embeddings, out_context], dim=1)  # Shape: [batch_size, 1536]
+        combined_out = self.fc_final(combined_embed)  # Shape: [batch_size, 768]
+        
+        if "roberta" in self.model_name or "longformer" == self.model_name:
+            combined_out = combined_out.unsqueeze(1)  # Add sequence dimension: [batch_size, seq_length=1, hidden_dim]
+            combined_out = self.node_classifier(combined_out).squeeze(1)  # Remove sequence dimension after classification
+        else:
+            combined_out = self.node_classifier(combined_out)  # Directly use for BERT
+        return combined_out
 
 
 class SimpleGraphModel(torch.nn.Module):
@@ -530,7 +666,7 @@ class GATTest(torch.nn.Module):
         print('Inside GATTEST init num layers is ', self.num_layers)
     
 
-    def forward(self, data, max_length=512, gpu=True):   
+    def forward(self, data, max_length=512, gpu=False):   
         # Save the original batch size
         #batch_size = x.size(0)
         data = data.to('cpu')
@@ -864,6 +1000,8 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
         model = BERTConcat(pretrained_model_name=pretrained_model_name)
     elif model_name == "bertwithneighconcat":
          model = BERTTextAndNeighbors(pretrained_model_name=pretrained_model_name)
+    elif model_name == "bert-ctxemb":
+        model = BERTContextEmb(pretrained_model_name=pretrained_model_name)
     elif model_name == 'fb-roberta-hate':
         model = AutoModelForSequenceClassification.from_pretrained("facebook/roberta-hate-speech-dynabench-r4-target")
     #elif model_name == 'img-text-transformer':
