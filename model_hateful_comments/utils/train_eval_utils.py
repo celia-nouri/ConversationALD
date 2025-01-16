@@ -160,28 +160,46 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
                         # Accumulate loss, corrects, true and predicted labels 
                         running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(loss, y_pred, y, running_loss, running_corrects, true_labels, predicted_labels)
                     if outfile:
-                        my_output = {'pred_label' : pred_label.item(), 'y': y.item(), 'y_pred': logits.detach().cpu().numpy().tolist()}
+                        y = data.y
+                        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+                        x = data.x_text[masked_index][0]
+                        text = str(x.get('body', ''))
+                        permalink = str(x.get('permalink', ''))
+                        reddit_url = 'https://www.reddit.com' + permalink
+                        label = str(x.get('label', ''))
+                        anno_ctx = str(x.get('anno_ctx', ''))
+                        anno_tgt = str(x.get('anno_tgt', ''))
+                        anno_tgt_cat = str(x.get('anno_tgt_cat', ''))
+                        my_id = str(x.get('id', ''))
+                        
+                        my_output = {
+                            'id': my_id, 
+                            'reddit_url': reddit_url,
+                            'index': int(masked_index),
+                            'text': text,
+                            'anno_ctx': anno_ctx,
+                            'anno_tgt': anno_tgt,
+                            'anno_tgt_cat': anno_tgt_cat,
+                            'label': label,
+                            'y': y.item(), 
+                            'pred_label' : pred_label.item(), 
+                            'y_pred': logits.detach().cpu().numpy().tolist() 
+                        }
                         if model_name == "bert-class" or model_name == "bert-concat" or model_name == "bert-ctxemb" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
                             masked_index = data.y_mask.nonzero(as_tuple=True)[0]
-                            text = data.x_text[masked_index][0]['body'] 
-                            my_output['text'] = text
-                            my_output['x'] = text = data.x_text[masked_index][0]
+                            my_output['x'] = data.x_text[masked_index][0]
                             my_output['masked_index'] = masked_index.detach().cpu().numpy().tolist() 
                         elif model_name == 'gat-test':
                             masked_index = data.y_mask.nonzero(as_tuple=True)[0]
-                            text = data.x_text[masked_index][0]["body"]
                             _, edges_dic_num, conv_indices_to_keep, my_new_mask_idx = get_graph(data.x_text, data["y_mask"], with_temporal_edges=False, undirected=False)
-                            texts = [data.x_text[i][0]["body"] for i in conv_indices_to_keep]
-                            my_output['text'] = text
+                            texts = [str(data.x_text[i][0]["body"]) for i in conv_indices_to_keep]
                             my_output['texts'] = texts
                             my_output['conv_indices_to_keep'] = conv_indices_to_keep
                         elif model_name == 'hetero-graph':
                             masked_index = data.y_mask.nonzero(as_tuple=True)[0]
-                            text = data.x_text[masked_index]
                             mask = data["y_mask"]
                             num_comment_nodes, _, num_users, _, conv_indices_to_keep, my_new_mask_idx = get_hetero_graph(data.x_text, mask, with_temporal_edges=False)
                             texts = [data.x_text[i][0]["body"] for i in conv_indices_to_keep]
-                            my_output['text'] = text
                             my_output['texts'] = texts
                             my_output['conv_indices_to_keep'] = conv_indices_to_keep
                             my_output['num_comment_nodes'] = num_comment_nodes

@@ -98,8 +98,8 @@ def create_hatespeech_dataset(size='medium', validation=True):
     assert size in ["small", "small-1000", "medium", "large", "cad", "cad-small"] 
     # Set SLURM_TMPDIR
     # Switch to the right directory, depending on local or CLEPS
-    os.environ['SLURM_TMPDIR'] = "/home/cnouri/HatefulDiscussionsModeling/data"
-    #os.environ['SLURM_TMPDIR'] = "/Users/celianouri/Stage24/HatefulDiscussionsModeling/data"
+    #os.environ['SLURM_TMPDIR'] = "/home/cnouri/HatefulDiscussionsModeling/data"
+    os.environ['SLURM_TMPDIR'] = "/Users/celianouri/Stage24/HatefulDiscussionsModeling/data"
     dataset = HatefulDiscussions(size, root="balanced_cad")
 
     path = os.path.expandvars("$SLURM_TMPDIR")
