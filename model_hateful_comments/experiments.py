@@ -87,21 +87,21 @@ if __name__ == "__main__":
 
     models_string = json.dumps(all_model_names)
     pretrained_model_string = json.dumps(all_base_pretrained_models)
-    parser.add_argument('--model', type=str, default='bert-ctxemb', help='the model to use, can take one of the following values: ' + models_string)
+    parser.add_argument('--model', type=str, default='bert-class', help='the model to use, can take one of the following values: ' + models_string)
     # "bert-base-uncased", "bert-base-cased", "roberta-base", "xlm-roberta-base", "allenai/longformer-base-4096", "answerdotai/ModernBERT-base", "answerdotai/ModernBERT-large" 
     parser.add_argument('--pretrained-model-name', type=str, default="bert-base-uncased", help='name for pretrained text model to use to generate text embeddings, can take one of the following values: ' + pretrained_model_string)
     parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
-    parser.add_argument('--num-layers', type=int, default=4, help='the number of GAT layers in graph models')
+    parser.add_argument('--num-layers', type=int, default=3, help='the number of GAT layers in graph models')
 
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
-    parser.add_argument('--size', type=str, default='small', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
+    parser.add_argument('--size', type=str, default='cad', help='the size of the dataset, can take one of the following values: ["small", "medium", "large", "small-1000", "cad"]')
     parser.add_argument('--validation', type=bool, default=True, help='rather or not to use a validation set for model tuning')
     parser.add_argument('--epochs', type=int, default=20, metavar='E', help='number of epochs')
     parser.add_argument('--lr', type=float, default=3e-6, metavar='E', help='learning rate')
     parser.add_argument('--wd', type=float, default=0.1, metavar='E', help='weight decay')
-    # seeds = [42, 7, 123, 2025, 99]
-    parser.add_argument('--seed', type=int, default=42, help='seed for training reproduciability')
+    # seeds = [42, 7, 123, 2025, 99] + [39, 1801, 762, 4504, 3]
+    parser.add_argument('--seed', type=int, default=762, help='seed for training reproduciability')
 
     parser.add_argument('--enable-images', type=bool, default=True, metavar='E', help='rather or not to use the post images for training, defaults to True')
 

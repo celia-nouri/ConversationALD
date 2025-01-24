@@ -10,7 +10,7 @@
 #SBATCH --output=%x_%j.out       # output file name
 #SBATCH --mem=0  # Request all available memory on the node
 
-#SBATCH --job-name=bert-ctxemb-small-512-42  # create a short name for your job bot-gat-dir-3l-cad-512-99
+#SBATCH --job-name=bertclass-cad-512-762 # create a short name for your job bot-gat-dir-3l-cad-512-99
 #SBATCH --hint=multithread       # we get physical cores not logical
 
 #SBATCH --error=%x_%j.err    # error file name

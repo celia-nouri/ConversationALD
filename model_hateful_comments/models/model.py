@@ -315,9 +315,18 @@ class BERTContextEmb(nn.Module):
 
         self.node_classifier = model.classifier.to(device)
 
-    def forward(self, all_conv_texts, target_text, labels, max_length=512):
+    def forward(self, data, target_text, labels, max_length=512):
         device = get_device()
-        print("length all conv texts: ", len(all_conv_texts))
+        data = data.to(device)
+        mask = data["y_mask"]
+
+        _, _, conv_indices_to_keep, _ = get_graph(data.x_text, mask, with_temporal_edges=False, undirected=False)
+        all_conv_texts = []
+        for i in conv_indices_to_keep:
+            all_conv_texts.append(data.x_text[i][0]['body'])
+        print(f"Number of comments kept in conversation: {len(conv_indices_to_keep)}")
+
+
         for _ in range(len(all_conv_texts), 25):
             all_conv_texts.append("")
         print("lafter append: ", len(all_conv_texts))
@@ -666,7 +675,7 @@ class GATTest(torch.nn.Module):
         print('Inside GATTEST init num layers is ', self.num_layers)
     
 
-    def forward(self, data, max_length=512, gpu=False):   
+    def forward(self, data, max_length=512, gpu=True):   
         # Save the original batch size
         #batch_size = x.size(0)
         data = data.to('cpu')

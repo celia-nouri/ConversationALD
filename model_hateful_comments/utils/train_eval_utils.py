@@ -133,7 +133,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
             for data in loader:
                 with autocast():
                     y, y_pred = run_model_pred(model, data, model_name, dataset_name, device, tokenizer)
-                    if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "bert-ctxemb" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
+                    if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
                         loss = y_pred.loss
                         logits = y_pred.logits
 
@@ -143,7 +143,7 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
                         running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                             loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                         )
-                    elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph' or model_name == "bertwithneighconcat":
+                    elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph' or model_name == "bertwithneighconcat" or model_name == "bert-ctxemb":
                         criterion = get_criterion(device).to(device)
                         y = y.long().to(device)
                         logits = y_pred.to(device)
@@ -275,9 +275,8 @@ def run_model_pred(model, data, model_name, dataset_name, device, tokenizer=None
         y = data.y
         masked_index = data.y_mask.nonzero(as_tuple=True)[0]
         text = data.x_text[masked_index][0]['body']
-        all_texts = get_all_texts(data.x_text)
         labels = y.long().to(device)
-        y_pred = model(all_texts, text, labels=labels) 
+        y_pred = model(data, text, labels=labels) 
 
     elif model_name == "bertwithneighconcat":
         y = data.y
@@ -392,11 +391,11 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
             with autocast():
                 y, y_pred = run_model_pred(model, data, model_name, 'hateful_discussions', device, tokenizer)
                 y = y.to(device)
-                if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "bert-ctxemb" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
+                if model_name == 'fb-roberta-hate' or model_name =='bert-class' or model_name == "bert-concat" or model_name == "longform-class" or model_name == "xlmr-class" or model_name == "roberta-class" or model_name == "modernbert-class":
                     labels = y.long().to(device)
                     logits = y_pred.logits.to(device)
                     loss = criterion(logits, labels).to(device)
-                elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph' or model_name == "bertwithneighconcat":
+                elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph' or model_name == "bertwithneighconcat" or model_name == "bert-ctxemb":
                     logits = y_pred.to(device)
                     labels = y.long().to(device)
                     loss = criterion(logits, labels).to(device)
