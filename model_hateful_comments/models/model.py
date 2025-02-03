@@ -624,6 +624,10 @@ class GATTest(torch.nn.Module):
             if num_layers == 4:
                 self.gat3 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_1)
                 self.gat4 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_2)
+            if num_layers == 5:
+                self.gat3 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_1)
+                self.gat4 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_1)
+                self.gat5 = GATConv(hidden_channels * num_heads_1, hidden_channels, heads=num_heads_2)
         self.fc = torch.nn.Linear(1536, 768)  # Output one value for binary classification
         # Determine model type based on the pretrained model name
         self.model_name = "bert"
@@ -764,7 +768,19 @@ class GATTest(torch.nn.Module):
                     # GAT layer 4
                     x = F.elu(x) 
                     x = self.gat4(x, edge_indices)
-
+                elif self.num_layers == 5:
+                    self.gat3 = self.gat3.to(device_graph)
+                    self.gat4 = self.gat4.to(device_graph)
+                    self.gat5 = self.gat5.to(device_graph)
+                    # GAT layer 3
+                    x = F.elu(x)
+                    x = self.gat3(x, edge_indices)
+                    # GAT layer 4
+                    x = F.elu(x) 
+                    x = self.gat4(x, edge_indices)
+                    # GAT layer 5
+                    x = F.elu(x)
+                    x = self.gat5(x, edge_indices)
         device_classification = get_device()
         if gpu:
             device_classification = torch.device('cuda:0')               
