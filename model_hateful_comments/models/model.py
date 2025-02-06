@@ -10,7 +10,7 @@ from utils.construct_graph import get_graph, get_hetero_graph
 #from models.multimodal_transformer import GraphormerModel, GraphormerEncoder
 
 
-all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "bert-concat", "bertwithneighconcat", "bert-ctxemb", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test", "hetero-graph", "longform-class", "xlmr-class", "modernbert-class"]
+all_model_names = ["simple-graph", "distil-class", "text-class", "roberta-class", "bert-class", "bert-concat", "bertwithneighconcat", "bert-ctxemb", "ctxembed", "fb-roberta-hate", "img-text-transformer", "text-graph-transformer", "multimodal-transformer", "gat-model", "gat-test", "hetero-graph", "longform-class", "xlmr-class", "modernbert-class"]
 #var tokenizer = DistilBertTokenizer.from_pretrained('distilbert-base-uncased', truncation=True, do_lower_case=True);
 all_base_pretrained_models = [
     "bert-base-uncased",        # BERT (English, uncased)
@@ -171,6 +171,200 @@ class BERTConcat(nn.Module):
         input_text = target_text + " [SEP] " + combined_context
         return input_text
 
+# Context-Embed model described in https://aclanthology.org/2024.lrec-main.740/
+class ContextEmbed(nn.Module):
+    def __init__(self, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.3, attention_probs_dropout_prob=0.3):
+        super(ContextEmbed, self).__init__()
+        device = get_device()
+        
+        self.model_name = "bert"
+        if "longformer" in pretrained_model_name:
+            self.model_name = "longformer"
+        elif "xlm-roberta" in pretrained_model_name:
+            self.model_name = "xlm-roberta"
+        elif "roberta" in pretrained_model_name:
+            self.model_name = "roberta"
+        print(f"initializing ContextEmbed model with {self.model_name} text model, pretrained model name is {pretrained_model_name}")
+        self.layernorm = nn.LayerNorm(768).to(device)
+        
+        # Define custom configurations for BERT, and context models
+        self.config = AutoConfig.from_pretrained(
+            "bert-base-uncased",
+            num_labels=num_classes,  # Number of classes for classification
+            hidden_dropout_prob=hidden_dropout_prob,  # Dropout for hidden layers
+            attention_probs_dropout_prob=attention_probs_dropout_prob  # Dropout for attention layers
+        )
+        
+        # Load pre-trained BERT model for sequence classification with the custom config
+        self.text_model = AutoModelForSequenceClassification.from_pretrained(
+            "bert-base-uncased",
+            config=self.config
+        ).to(device)
+        
+        # Tokenizer for encoding text inputs
+        self.tokenizer = AutoTokenizer.from_pretrained(pretrained_model_name)
+
+        self.fc = torch.nn.Linear(1536, 768).to(device)
+
+
+    def forward(self, data, target_text, labels, max_length=512):
+        device = get_device()
+        data = data.to('cpu')
+        mask = data["y_mask"]
+        _, _, conv_indices_to_keep, my_new_mask_idx = get_graph(data.x_text, mask, with_temporal_edges=False, undirected=False)
+
+        context_texts = []
+        for i in conv_indices_to_keep:
+            if i != my_new_mask_idx:
+                context_texts.append(data.x_text[i][0]['body'])
+        
+        # Combine context texts using the [SEP] token
+        combined_context = " [SEP] ".join(context_texts)
+        
+        # Tokenize target text and combined context
+        target_encodings = self.tokenizer(
+            target_text,
+            padding='max_length',  # Pads up to the max length
+            truncation=True,       # Truncate context if needed
+            max_length=max_length,        # BERT's max input size
+            return_tensors='pt',   # Return PyTorch tensors
+        )
+        target_encodings = target_encodings.to(device)
+
+        context_encodings = self.tokenizer(
+            combined_context,
+            padding='max_length',  # Pads up to the max length
+            truncation=True,       # Truncate context if needed
+            max_length=max_length,        # BERT's max input size
+            return_tensors='pt',   # Return PyTorch tensors
+        )
+        context_encodings = context_encodings.to(device)
+
+        # Encode message (word embeddings from embedding layer)
+        target_output = self.text_model.bert(
+                token_type_ids=target_encodings.get("token_type_ids", None),
+                attention_mask=target_encodings["attention_mask"],
+                input_ids=target_encodings["input_ids"]
+            ).last_hidden_state[:, 0, :] # Shape: [#comments, 100, hidden_dim]
+        context_output = self.text_model.bert(
+                token_type_ids=context_encodings.get("token_type_ids", None),
+                attention_mask=context_encodings["attention_mask"],
+                input_ids=context_encodings["input_ids"]
+            ).last_hidden_state[:, 0, :] # Shape: [#comments, 100, hidden_dim]
+
+        # Normalize before concatenation
+        context_norm = self.layernorm(context_output)  # Normalize context
+        target_norm = self.layernorm(target_output)  # Normalize message embeddings
+
+        # Concatenate context and target embeddings
+        combined_embeddings = torch.cat([context_norm, target_norm], dim=-1)
+        print(f"combined embedding shape {combined_embeddings.shape}")
+
+        # Project down to hidden_dim
+        combined_embeddings = self.fc(combined_embeddings)
+
+        # Apply activation function
+        combined_embeddings = F.gelu(combined_embeddings)
+
+        # Residual connection
+        #combined_embeddings = combined_embeddings + target_norm  
+        print(f"combined embedding shape after residual {combined_embeddings.shape}")
+        
+
+        # Classification head
+        #output_representation = encoder_outputs.last_hidden_state[:, 0, :]  # [CLS] token
+        out = self.text_model.classifier(combined_embeddings)
+        return out
+    
+    def forward2(self, data, target_text, labels, max_length=512):
+        device = get_device()
+        data = data.to('cpu')
+        mask = data["y_mask"]
+        _, _, conv_indices_to_keep, my_new_mask_idx = get_graph(data.x_text, mask, with_temporal_edges=False, undirected=False)
+
+        context_texts = []
+        for i in conv_indices_to_keep:
+            if i != my_new_mask_idx:
+                context_texts.append(data.x_text[i][0]['body'])
+        
+        # Combine context texts using the [SEP] token
+        combined_context = " [SEP] ".join(context_texts)
+        
+        # Tokenize target text and combined context
+        target_encodings = self.tokenizer(
+            target_text,
+            padding='max_length',  # Pads up to the max length
+            truncation=True,       # Truncate context if needed
+            max_length=max_length,        # BERT's max input size
+            return_tensors='pt',   # Return PyTorch tensors
+        )
+        target_encodings = target_encodings.to(device)
+
+        context_encodings = self.tokenizer(
+            combined_context,
+            padding='max_length',  # Pads up to the max length
+            truncation=True,       # Truncate context if needed
+            max_length=max_length,        # BERT's max input size
+            return_tensors='pt',   # Return PyTorch tensors
+        )
+        context_encodings = context_encodings.to(device)
+
+        # Handle model-specific inputs to generate contextual representation C
+        if self.model_name == "longformer":
+            # For Longformer, include global attention
+            global_attention_mask = torch.zeros_like(context_encodings["attention_mask"])
+            global_attention_mask[:, 0] = 1  # Apply global attention to the first token
+
+            context_output = self.context_model(
+                input_ids=context_encodings["input_ids"],
+                attention_mask=context_encodings["attention_mask"],
+                global_attention_mask=global_attention_mask
+            ).last_hidden_state  # Shape: [#comments, 100, hidden_dim]
+        else:
+            # For BERT, RoBERTa, and XLM-R
+            context_output = self.context_model(
+                token_type_ids=context_encodings.get("token_type_ids", None),
+                attention_mask=context_encodings["attention_mask"],
+                input_ids=context_encodings["input_ids"]
+            ).last_hidden_state  # Shape: [#comments, 100, hidden_dim]
+            print(f"context output shape {context_output.shape}")
+            context_output = context_output[:, 0, :]  # [CLS] token
+            print(f"context output shape after CLS token is {context_output.shape}")
+
+        # Encode message (word embeddings from embedding layer)
+        target_wembeddings = self.text_model.bert.embeddings.word_embeddings(target_encodings["input_ids"])
+
+        # Apply layer normalisation before concat
+        context_output = context_output.unsqueeze(1).expand(-1, target_wembeddings.shape[1], -1)  
+        print(f"context output shape after extention is {context_output.shape}")
+
+        # Normalize before concatenation
+        context_norm = self.layernorm(context_output)  # Normalize context
+        target_norm = self.layernorm(target_wembeddings)  # Normalize message embeddings
+
+        # Concatenate context and target embeddings
+        combined_embeddings = torch.cat([context_norm, target_norm], dim=-1)
+
+        # Project down to hidden_dim
+        combined_embeddings = self.fc(combined_embeddings)
+
+        # Apply activation function
+        combined_embeddings = F.gelu(combined_embeddings)
+
+        # Residual connection
+        combined_embeddings = combined_embeddings + target_norm  
+        
+        # Pass through remaining layers of the message encoder
+        extended_attention_mask = self.text_model.bert.get_extended_attention_mask(
+            target_encodings["attention_mask"], target_encodings["attention_mask"].shape, device
+        )
+        encoder_outputs = self.text_model.bert.encoder(
+            hidden_states=combined_embeddings, attention_mask=extended_attention_mask
+        )
+        # Classification head
+        output_representation = encoder_outputs.last_hidden_state[:, 0, :]  # [CLS] token
+        out = self.text_model.classifier(output_representation)
+        return out
 
 class BERTTextAndNeighbors(nn.Module):
     def __init__(self, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.3, attention_probs_dropout_prob=0.3, max_length=4096):
@@ -274,8 +468,8 @@ class BERTContextEmb(nn.Module):
     def __init__(self, pretrained_model_name='bert-base-uncased', num_classes=2, hidden_dropout_prob=0.3, attention_probs_dropout_prob=0.3, max_length=512):
         super(BERTContextEmb, self).__init__()
         device = get_device()
-        self.fc_context = torch.nn.Linear(19200, 768).to(device)
-        self.fc_final = torch.nn.Linear(1536, 768).to(device)  # Output one value for binary classification
+        #self.fc_context = torch.nn.Linear(19200, 768).to(device)
+        self.fc = torch.nn.Linear(1536, 768).to(device)  # Output one value for binary classification
         # Determine model type based on the pretrained model name
         self.model_name = "bert"
         if "longformer" in pretrained_model_name:
@@ -324,14 +518,6 @@ class BERTContextEmb(nn.Module):
         all_conv_texts = []
         for i in conv_indices_to_keep:
             all_conv_texts.append(data.x_text[i][0]['body'])
-        print(f"Number of comments kept in conversation: {len(conv_indices_to_keep)}")
-
-
-        for _ in range(len(all_conv_texts), 25):
-            all_conv_texts.append("")
-        print("lafter append: ", len(all_conv_texts))
-    
-        assert len(all_conv_texts) == 25
 
         # construct the conv context embeddings
         cls_embeddings_list = []  # To store CLS embeddings for each text
@@ -364,10 +550,16 @@ class BERTContextEmb(nn.Module):
             # Extract the CLS embedding (first token)
             cls_embeddings = model_output[:, 0, :]
             cls_embeddings_list.append(cls_embeddings)
+
+        context_embed = cls_embeddings_list[0]
+        for context in cls_embeddings_list[1:]:
+            concat_context = torch.cat([context_embed, context], dim=1)
+            context_embed = self.fc(concat_context)
         
         # Concatenate the CLS embeddings
-        concat_out = torch.cat(cls_embeddings_list, dim=1)  # Shape: [batch_size, 19200]
-        out_context = self.fc_context(concat_out)  # Shape: [batch_size, 768]
+        #concat_out = torch.cat(cls_embeddings_list, dim=1)  # Shape: [batch_size, 19200]
+
+        #out_context = self.fc_context(concat_out)  # Shape: [batch_size, 768]
 
         # generate target text embedding
         target_encodings = self.tokenizer(
@@ -393,9 +585,10 @@ class BERTContextEmb(nn.Module):
                 attention_mask=encodings["attention_mask"],
                 token_type_ids=encodings.get("token_type_ids", None)
             ).last_hidden_state
+
         target_cls_embeddings = model_output[:, 0, :]
-        combined_embed = torch.cat([target_cls_embeddings, out_context], dim=1)  # Shape: [batch_size, 1536]
-        combined_out = self.fc_final(combined_embed)  # Shape: [batch_size, 768]
+        combined_embed = torch.cat([target_cls_embeddings, context_embed], dim=1)  # Shape: [batch_size, 1536]
+        combined_out = self.fc(combined_embed)  # Shape: [batch_size, 768]
         
         if "roberta" in self.model_name or "longformer" == self.model_name:
             combined_out = combined_out.unsqueeze(1)  # Add sequence dimension: [batch_size, seq_length=1, hidden_dim]
@@ -1025,6 +1218,8 @@ def get_model(args, model_name, hidden_channels=64, num_heads=1):
         model = BERTConcat(pretrained_model_name=pretrained_model_name)
     elif model_name == "bertwithneighconcat":
          model = BERTTextAndNeighbors(pretrained_model_name=pretrained_model_name)
+    elif model_name == "ctxembed":
+        model = ContextEmbed(pretrained_model_name=pretrained_model_name)
     elif model_name == "bert-ctxemb":
         model = BERTContextEmb(pretrained_model_name=pretrained_model_name)
     elif model_name == 'fb-roberta-hate':

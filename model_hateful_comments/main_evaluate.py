@@ -102,7 +102,7 @@ if __name__ == "__main__":
     # "bert-base-uncased", "bert-base-cased", "roberta-base", "xlm-roberta-base", "allenai/longformer-base-4096", "answerdotai/ModernBERT-base", "answerdotai/ModernBERT-large" 
     parser.add_argument('--pretrained-model-name', type=str, default="bert-base-uncased", help='name for pretrained text model to use to generate text embeddings, can take one of the following values: ' + pretrained_model_string)
 
-    parser.add_argument('--num-layers', type=int, default=2, help='the number of GAT layers in graph models')
+    parser.add_argument('--num-layers', type=int, default=5, help='the number of GAT layers in graph models')
     parser.add_argument('--undirected', type=bool, default=False, help='define the graph model as an undirected graph')
     parser.add_argument('--temp-edges', type=bool, default=False, help='add temporal edges to the graph')
     parser.add_argument('--with_graph', type=bool, default=False, help='rather or not to use a graphormer in the model to represent discussion dynamics')
@@ -160,4 +160,4 @@ if __name__ == "__main__":
 
     args = parser.parse_args() 
 
-    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/bot-gat-dir-2l-cad-512-1801_3893589.pt" , args)
+    run_eval("/home/cnouri/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/bot-gat-dir-5l-cad-512-3_3896043.pt" , args)

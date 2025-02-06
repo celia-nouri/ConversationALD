@@ -7,7 +7,7 @@
 #SBATCH --time=48:00:00          # Total run time limit (HH:MM:SS)
 #SBATCH --output=%x_%j.out       # Output file name
 #SBATCH --error=%x_%j.err        # Error file name
-#SBATCH --job-name=eval-bertclass-cad-512-1801 # Create a short name for your job
+#SBATCH --job-name=eval-longconcat-cad-4096-3 # Create a short name for your job
 #SBATCH --hint=multithread       # Request physical cores, not logical
 #SBATCH --mail-type=ALL
 #SBATCH --mail-user=celia.nouri@inria.fr

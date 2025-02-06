@@ -143,9 +143,11 @@ def evaluate_model(model, loader, criterion, model_name, dataset_name, device, o
                         running_loss, running_corrects, true_labels, predicted_labels, _ = update_running_metrics(
                             loss, pred_label, y, running_loss, running_corrects, true_labels, predicted_labels
                         )
-                    elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph' or model_name == "bertwithneighconcat" or model_name == "bert-ctxemb":
+                    elif model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer" or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph' or model_name == "bertwithneighconcat" or model_name == "bert-ctxemb" or model_name == "ctxembed":
                         criterion = get_criterion(device).to(device)
                         y = y.long().to(device)
+                        if model_name == "ctxembed":
+                            y = y.squeeze(1)
                         logits = y_pred.to(device)
                         loss = criterion(y_pred, y).to(device)
                         _, pred_label = torch.max(y_pred, dim=1)
@@ -285,6 +287,12 @@ def run_model_pred(model, data, model_name, dataset_name, device, tokenizer=None
         context_texts = get_post_parent(data.x_text, masked_index)
         labels = y.long().to(device)
         y_pred = model(context_texts, text, labels=labels) 
+        
+    elif model_name == "ctxembed":
+        masked_index = data.y_mask.nonzero(as_tuple=True)[0]
+        text = data.x_text[masked_index][0]['body']
+        labels = y.long().to(device)
+        y_pred = model(data, text, labels=labels)         
 
     elif model_name == "fb-roberta-hate":
         if dataset_name == "hateful_discussions":
@@ -338,6 +346,7 @@ def run_model_pred(model, data, model_name, dataset_name, device, tokenizer=None
     return y, y_pred
 
 def update_running_metrics(loss, predicted_label, y, running_loss, running_corrects, true_labels, predicted_labels):
+
     running_loss += loss.item()
 
     good_pred = False
@@ -347,6 +356,7 @@ def update_running_metrics(loss, predicted_label, y, running_loss, running_corre
     #running_corrects += torch.sum(predicted_label.item() == y.item())
     true_labels.extend(y.cpu().numpy())
     predicted_labels.append(predicted_label.item())
+
     return running_loss, running_corrects, true_labels, predicted_labels, good_pred
 
 
@@ -395,9 +405,11 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
                     labels = y.long().to(device)
                     logits = y_pred.logits.to(device)
                     loss = criterion(logits, labels).to(device)
-                elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph' or model_name == "bertwithneighconcat" or model_name == "bert-ctxemb":
+                elif model_name == 'multimodal-transformer' or model_name =='img-text-transformer' or model_name =='text-graph-transformer' or model_name == 'gat-model' or model_name == 'gat-test' or model_name == 'hetero-graph' or model_name == "bertwithneighconcat" or model_name == "bert-ctxemb" or model_name == "ctxembed":
                     logits = y_pred.to(device)
                     labels = y.long().to(device)
+                    if model_name == "ctxembed":
+                        labels = labels.squeeze(1)
                     loss = criterion(logits, labels).to(device)
                 loss = loss / accumulation_steps
             scaler.scale(loss).backward()
@@ -416,7 +428,7 @@ def train(args, model, train_loader, val_loader, test_loader, criterion, optimiz
         # record memory utilization snapshot for debugging
         #if device.type == 'cuda':
         #    torch.cuda.memory._dump_snapshot("my_snapshot.pickle")
-     
+
         avg_loss = running_loss/ len(train_loader)
         epoch_accuracy = float(running_corrects) / len(train_loader)
         epoch_precision = precision_score(true_labels, predicted_labels)
