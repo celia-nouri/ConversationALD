@@ -57,39 +57,53 @@ def run_eval(checkpoint_path, args):
 
     # Instantiate your model
     model = get_model(args, model_name, hidden_channels=64, num_heads=1)
+    model_filenames = [
+        #"bot-gat-dir-1l-cad-512-3_3891827",
+        #"bot-gat-dir-1l-cad-512-39_3891820",
+        #"bot-gat-dir-1l-cad-512-99_3623091",
+        #"bot-gat-dir-1l-cad-512-123_3622507",
+        "bot-gat-dir-1l-cad-512-762_3892179",
+        "bot-gat-dir-1l-cad-512-1801_3891835",
+        "bot-gat-dir-1l-cad-512-2025_3622508",
+        "bot-gat-dir-1l-cad-512-4504_3892177",    
+    ]
 
-    # Load the state dictionary
-    state_dict = torch.load(checkpoint_path, map_location=device)
-
-    # Load the state dictionary into the model
-    model.load_state_dict(state_dict)
+    for model_filename in model_filenames:
+        check_path = "/Users/celianouri/Stage24/HatefulDiscussionsModeling/model_hateful_comments/models/checkpoints/" + model_filename + ".pt"
 
 
-    # Define loss function
-    criterion = F.binary_cross_entropy_with_logits
-    if model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer":
-        criterion = get_criterion(device).to(device)
+        # Load the state dictionary
+        state_dict = torch.load(check_path, map_location=device)
 
-    # Set the model to evaluation mode
-    model.eval()
+        # Load the state dictionary into the model
+        model.load_state_dict(state_dict)
 
-    tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
 
-    # Finally, evaluate on the test set and report all metrics
-    print("Running evaluation ...")
-    test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate_model(model, test_loader, criterion, model_name, 'hateful_discussions', device, f"{model_name}_{size}_eval_test_outputs.tsv", tokenizer)
-    wandb.log({
-        "test_loss": test_loss,
-        "test_accuracy": test_accuracy,
-        "test_precision": test_precision,
-        "test_recall": test_recall,
-        "test_f1": test_f1
-    })
-    print(f"Test Loss: {test_loss:.4f}, "
-        f"Test Accuracy: {test_accuracy:.4f}, Test Precision: {test_precision:.4f}, "
-        f"Test Recall: {test_recall:.4f}, Test F1 Score: {test_f1:.4f}")
+        # Define loss function
+        criterion = F.binary_cross_entropy_with_logits
+        if model_name == 'multimodal-transformer' or model_name == 'img-text-transformer' or model_name == "text-graph-transformer":
+            criterion = get_criterion(device).to(device)
 
-    # Finish the run
+        # Set the model to evaluation mode
+        model.eval()
+
+        tokenizer = AutoTokenizer.from_pretrained('bert-base-uncased')
+
+        # Finally, evaluate on the test set and report all metrics
+        print("Running evaluation ...")
+        test_loss, test_accuracy, test_f1, test_precision, test_recall = evaluate_model(model, test_loader, criterion, model_name, 'hateful_discussions', device, f"{model_filename}.tsv", tokenizer)
+        #wandb.log({
+        #    "test_loss": test_loss,
+        #    "test_accuracy": test_accuracy,
+        #    "test_precision": test_precision,
+        #    "test_recall": test_recall,
+        #    "test_f1": test_f1
+        #})
+        print(f"For model {model_filename}. \nTest Loss: {test_loss:.4f}, "
+            f"Test Accuracy: {test_accuracy:.4f}, Test Precision: {test_precision:.4f}, "
+            f"Test Recall: {test_recall:.4f}, Test F1 Score: {test_f1:.4f}")
+
+        # Finish the run
     wandb.finish()
 
 if __name__ == "__main__":

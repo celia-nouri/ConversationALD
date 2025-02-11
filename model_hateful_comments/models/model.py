@@ -1,9 +1,17 @@
 import torch
 import torch_geometric.transforms as T
 from torch_geometric.nn import RGCNConv, GraphConv, GATConv, to_hetero
+from torch_geometric.utils import to_networkx
 from torch_geometric.data import Data, HeteroData
+import networkx as nx
+import matplotlib.pyplot as plt
 import torch.nn as nn
 import torch.nn.functional as F
+import numpy as np
+import pandas as pd
+import textwrap
+import seaborn as sns
+from networkx.drawing.nx_agraph import graphviz_layout
 from transformers import AutoModel, DistilBertModel, RobertaModel, AutoModelForSequenceClassification, AutoTokenizer, AutoConfig, PretrainedConfig
 from utils.construct_graph import get_graph, get_hetero_graph
 
@@ -688,7 +696,7 @@ class GATTest(torch.nn.Module):
         print('Inside GATTEST init num layers is ', self.num_layers)
     
 
-    def forward(self, data, max_length=512, gpu=True):   
+    def forward(self, data, max_length=512, gpu=False):   
         # Save the original batch size
         #batch_size = x.size(0)
         data = data.to('cpu')
@@ -708,8 +716,11 @@ class GATTest(torch.nn.Module):
         # YES. The undirected option without temporal edges is equal to edge_indices (the edge list returned by the mDT codebase.)
 
         texts = []
+        index = 0
         for i in conv_indices_to_keep:
             texts.append(data.x_text[i][0]['body'])
+            print(f"NODE {index}: {data.x_text[i][0]['body']}")
+            index = index + 1
         print(f"Number of comments kept in conversation: {len(conv_indices_to_keep)}")
 
         labels = y.long()
@@ -757,39 +768,43 @@ class GATTest(torch.nn.Module):
             self.gat1 = self.gat1.to(device_graph)
             cls_embeddings = cls_embeddings.to(device_graph)
             edge_indices = edge_indices.to(device_graph)
-            x = self.gat1(cls_embeddings, edge_indices)
+            x, att_weight = self.gat1(cls_embeddings, edge_indices, return_attention_weights=True)
+            draw_graphattention(x, edge_indices, att_weight, texts, out_name="layer1")
             x = F.elu(x)
             if self.num_layers > 1:
                 # GAT layer 2
                 self.gat2 = self.gat2.to(device_graph)
-                x = self.gat2(x, edge_indices)
+                x, att_weight2 = self.gat2(x, edge_indices, return_attention_weights=True)
+                draw_graphattention(x, edge_indices, att_weight2, texts, out_name="layer2")
                 if self.num_layers == 3:
                     self.gat3 = self.gat3.to(device_graph)
                     # GAT layer 3
                     x = F.elu(x)
-                    x = self.gat3(x, edge_indices)
+                    x, att_weight3 = self.gat3(x, edge_indices, return_attention_weights=True)
+                    draw_graphattention(x, edge_indices, att_weight3, texts, out_name="layer3")
+
                 elif self.num_layers == 4:
                     self.gat3 = self.gat3.to(device_graph)
                     self.gat4 = self.gat4.to(device_graph)
                     # GAT layer 3
                     x = F.elu(x)
-                    x = self.gat3(x, edge_indices)
+                    x, att_weight3 = self.gat3(x, edge_indices, return_attention_weights=True)
                     # GAT layer 4
                     x = F.elu(x) 
-                    x = self.gat4(x, edge_indices)
+                    x, att_weight4 = self.gat4(x, edge_indices, return_attention_weights=True)
                 elif self.num_layers == 5:
                     self.gat3 = self.gat3.to(device_graph)
                     self.gat4 = self.gat4.to(device_graph)
                     self.gat5 = self.gat5.to(device_graph)
                     # GAT layer 3
                     x = F.elu(x)
-                    x = self.gat3(x, edge_indices)
+                    x, att_weight3 = self.gat3(x, edge_indices, return_attention_weights=True)
                     # GAT layer 4
                     x = F.elu(x) 
-                    x = self.gat4(x, edge_indices)
+                    x, att_weight4 = self.gat4(x, edge_indices, return_attention_weights=True)
                     # GAT layer 5
                     x = F.elu(x)
-                    x = self.gat5(x, edge_indices)
+                    x, att_weight5 = self.gat5(x, edge_indices, return_attention_weights=True)
         device_classification = get_device()
         if gpu:
             device_classification = torch.device('cuda:0')               
@@ -812,6 +827,239 @@ class GATTest(torch.nn.Module):
         else:
             out = self.node_classifier(out)  # Directly use for BERT
         return out
+
+
+def wrap_text(text, width=10):
+    """Wrap text into multiple lines for better readability inside nodes."""
+    new_text = textwrap.wrap(text[:15], width)
+    if len(text) > 15:
+        new_text = textwrap.wrap(text[:15] + "...", width)
+
+    return "\n".join(new_text)
+
+
+
+def visualize_attention_graph(x, edge_index, attn_values, node_texts, out_name="gat_attention_graph"):
+    # Convert PyTorch Geometric graph to NetworkX
+    G = to_networkx(Data(x=x, edge_index=edge_index), to_undirected=False)
+
+    # Ensure attention values are float32 and 1D
+    attn_values = attn_values.to(torch.float32).squeeze(1)  
+
+    edge_attention = {
+        (int(edge_index[0, i]), int(edge_index[1, i])): float(attn_values[i].mean())  
+        for i in range(attn_values.size(0))
+    }
+
+    # Extract node IDs and edge attention weights
+    #edge_attention = {
+    #    (int(edge_index[0, i]), int(edge_index[1, i])): float(attn_values[i])
+    #    for i in range(attn_values.size(0))
+    #}
+
+    # Create an adjacency matrix for heatmap visualization
+    num_nodes = x.shape[0]
+    attention_matrix = torch.zeros((num_nodes, num_nodes), dtype=torch.float32)
+    for (src, tgt), weight in edge_attention.items():
+        attention_matrix[src, tgt] = weight
+
+    # Convert matrix to Pandas DataFrame
+    attn_df = pd.DataFrame(attention_matrix.numpy())
+
+    # High-Quality Graph Visualization  
+    plt.figure(figsize=(10, 6), dpi=300)
+    
+    # Ensure a hierarchical top-down structure
+    pos = graphviz_layout(G, prog="dot")  
+
+    # Get attention weight range for normalization
+    min_weight = min(edge_attention.values()) if edge_attention else 0
+    max_weight = max(edge_attention.values()) if edge_attention else 1
+
+    # Normalize attention weights for color mapping
+    norm = plt.Normalize(vmin=min_weight, vmax=max_weight)
+    edge_colors = [plt.cm.Blues(norm(edge_attention.get((u, v), 0))) for u, v in G.edges()]
+    edge_widths = [2 + 3 * norm(edge_attention.get((u, v), 0)) for u, v in G.edges()]  # Adjust thickness
+
+    # Identify the last node added
+    last_node = list(G.nodes())[-1]  
+    node_colors = ["#ADD8E6" if node != last_node else "#FFA500" for node in G.nodes()]  
+
+    # Draw nodes
+    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=1200, edgecolors="black")
+
+    # Draw edges with correct colors and thickness
+    nx.draw_networkx_edges(G, pos, edge_color=edge_colors, edge_cmap=plt.cm.Blues, width=edge_widths, alpha=0.8)
+
+    # Trim text for readability
+    trimmed_labels = {node: wrap_text(node_texts[node]) for node in G.nodes()}
+
+    # Draw node labels
+    nx.draw_networkx_labels(G, pos, labels=trimmed_labels, font_size=6, font_family="serif", font_color="black")
+
+    # Add edge attention labels
+    edge_labels = {k: f"{v:.2f}" for k, v in edge_attention.items()}
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8, 
+                                 font_family="serif", bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
+
+    plt.axis("off")
+
+    # Save to file
+    plt.savefig(f"{out_name}_attgraph.pdf", format="pdf", bbox_inches="tight", dpi=300)
+
+    # 🔹 Attention Weights as a Heatmap 
+    plt.figure(figsize=(8, 6), dpi=300)
+    sns.heatmap(attn_df, annot=True, cmap="Blues", fmt=".2f", linewidths=0.5, cbar=True)
+    plt.title("Graph Attention Weights")
+    
+    plt.savefig(f"{out_name}_heatmap.pdf", format="pdf", bbox_inches="tight", dpi=300)
+
+
+def visualize_attention_graph2(x, edge_index, attn_values, node_texts, out_name="gat_attention_graph"):
+    # Convert PyTorch Geometric graph to NetworkX
+    G = to_networkx(Data(x=x, edge_index=edge_index), to_undirected=False)
+
+    # Ensure attention values are float32
+    attn_values = attn_values.to(torch.float32).squeeze(1)  # Ensure 1D format
+    
+    # Extract node IDs and edge attention weights
+    edge_attention = {(int(edge_index[0, i]), int(edge_index[1, i])): float(attn_values[i]) 
+                      for i in range(attn_values.size(0))}
+
+    # Create an adjacency matrix for heatmap visualization
+    num_nodes = x.shape[0]
+    attention_matrix = torch.zeros((num_nodes, num_nodes), dtype=torch.float32)
+    for (src, tgt), weight in edge_attention.items():
+        attention_matrix[src, tgt] = weight
+        if src == tgt:  # Ensure self-loop is included (i.e., attention from node to itself)
+            attention_matrix[src, src] = weight
+
+    # Convert matrix to Pandas DataFrame for better visualization
+    attn_df = pd.DataFrame(attention_matrix.numpy())
+
+    # 🔹 High-Quality Graph Visualization  
+    plt.figure(figsize=(10, 6), dpi=300)
+    pos = graphviz_layout(G, prog="dot")  # Hierarchical layout
+
+    # Identify the last node added (by order of insertion)
+    last_node = list(G.nodes())[-1] 
+    node_colors = ["#ADD8E6" if node != last_node else "#FFA500" for node in G.nodes()]  # Light blue, last one orange
+
+    # Draw nodes
+    nx.draw_networkx_nodes(G, pos, node_color=node_colors, node_size=600, edgecolors="black")
+
+    # Draw edges with attention weights
+    edges = nx.draw_networkx_edges(G, pos, edge_color=list(edge_attention.values()), 
+                                   edge_cmap=plt.cm.Blues, width=2.5, alpha=0.8)
+
+    # Trim text for readability
+    trimmed_labels = {node: wrap_text(node_texts[node]) for node in G.nodes()}
+
+    # Draw node labels (text inside nodes)
+    nx.draw_networkx_labels(G, pos, labels=trimmed_labels, font_size=4, font_family="serif", font_color="black")
+
+    # Add edge attention labels
+    edge_labels = {k: f"{v:.2f}" for k, v in edge_attention.items()}
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=8, 
+                                 font_family="serif", bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
+
+    plt.axis("off")
+
+    # Save to file (vector format for publication)
+    plt.savefig(f"{out_name}.pdf", format="pdf", bbox_inches="tight", dpi=300)
+
+    # 🔹 Attention Weights as a Heatmap (for ACL paper)
+    plt.figure(figsize=(8, 6), dpi=300)
+    sns.heatmap(attn_df, annot=True, cmap="Blues", fmt=".2f", linewidths=0.5, cbar=True)
+    plt.title("Graph Attention Weights")
+    
+    plt.savefig(f"{out_name}_heatmap.pdf", format="pdf", bbox_inches="tight", dpi=300)
+
+
+def draw_graphattention(x, edge_index, attn_weights, node_texts, out_name=""):
+    node_texts[0] = "\'Tradition is just peer pressure from dead people\'"
+
+    # Extract attention weights from first GAT layer
+    edge_index, attn_values = attn_weights  # attn_weights is a tuple (edge_index, attn_values)
+
+    print(f"attention weights {attn_weights}")
+    attn_values = attn_values.to(torch.float32)
+    visualize_attention_graph(x, edge_index, attn_values, node_texts, out_name=out_name)
+    edge_attention = {
+        (int(edge_index[0, i]), int(edge_index[1, i])): float(attn_values[i].mean())  
+        for i in range(attn_values.size(0))
+    }
+    #edge_attention = {
+    #    (int(edge_index[0, i]), int(edge_index[1, i])): float(attn_values[i])
+    #    for i in range(attn_values.size(0))
+    #}
+
+    # Convert PyTorch geometric graph to NetworkX
+    G = to_networkx(Data(x=x, edge_index=edge_index), to_undirected=True)
+
+    # Get edge attention weights
+    edge_attention = {
+        (int(edge_index[0, i]), int(edge_index[1, i])): attn_values[i].to(torch.float32).mean().item()
+        for i in range(attn_values.size(0))
+    }
+    # Normalize edge attention scores for visualization
+    edge_colors = [edge_attention.get((u, v), 0) for u, v in G.edges()]
+
+    # High-quality, professional visualization
+    plt.figure(figsize=(6, 6), dpi=300)  # High DPI for publication quality
+    pos = nx.spring_layout(G, seed=42)  # Fixed layout for consistency
+
+    # Draw nodes
+    nx.draw_networkx_nodes(G, pos, node_color='black', node_size=400)  # Professional black nodes
+
+    nx.draw_networkx_nodes(G, pos, node_color='black', node_size=400)  # Professional black nodes
+
+    # Draw edges with attention weights
+    edges = nx.draw_networkx_edges(G, pos, edge_color=edge_colors, edge_cmap=plt.cm.Blues, width=2.5, alpha=0.8)
+
+    # Draw labels
+    nx.draw_networkx_labels(G, pos, font_size=12, font_family="serif", font_color="black")
+
+    # Edge attention labels
+    edge_labels = {k: f"{v:.2f}" for k, v in edge_attention.items()}
+    nx.draw_networkx_edge_labels(G, pos, edge_labels=edge_labels, font_size=10, font_family="serif", bbox=dict(facecolor='white', edgecolor='none', alpha=0.7))
+
+    # Remove axis
+    plt.axis("off")
+
+    # Save to file (vector format for publication)
+    plt.savefig(out_name + "_" + "gat_attention_graph.pdf", format="pdf", bbox_inches="tight", dpi=300)
+
+
+    # Heatmap
+    # Extract attention weights from first GAT layer
+    attn_values = attn_weights[0][1]  # attn_weights is a tuple (edge_index, attn_values)
+
+    # Create an adjacency matrix for attention scores
+    num_nodes = x.size(0)
+    attention_matrix = torch.zeros((num_nodes, num_nodes), dtype=torch.float32)
+
+    for i in range(attn_values.size(0)):
+        src, tgt = int(edge_index[0, i]), int(edge_index[1, i])
+        attention_matrix[src, tgt] = attn_values[i].float().mean().item()   # Average over heads
+
+    # Convert to DataFrame for better visualization
+    df_attn = pd.DataFrame(attention_matrix, index=[f"Node {i}" for i in range(num_nodes)], 
+                            columns=[f"Node {i}" for i in range(num_nodes)])
+
+    # Plot heatmap with Seaborn
+    plt.figure(figsize=(6, 5), dpi=300)  # High-resolution figure
+    sns.heatmap(df_attn, annot=True, cmap="Blues", fmt=".2f", linewidths=0.5, square=True, cbar=True)
+
+    # Improve styling for academic publication
+    plt.xticks(rotation=45, fontsize=10)
+    plt.yticks(rotation=0, fontsize=10)
+    plt.title("Graph Attention Weights Heatmap", fontsize=12, fontweight='bold')
+    plt.xlabel("Target Node", fontsize=11)
+    plt.ylabel("Source Node", fontsize=11)
+
+    # Save figure in high-quality format (for ACL paper)
+    plt.savefig(out_name + "_" + "gat_attention_heatmap.pdf", format="pdf", bbox_inches="tight", dpi=300)
 
 
 
