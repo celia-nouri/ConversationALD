@@ -15,7 +15,6 @@
 
 #SBATCH --error=%x_%j.err    # error file name
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=celia.nouri@inria.fr
 
 echo "### Running $SLURM_JOB_NAME ###"
 
@@ -26,8 +25,7 @@ export src=$(pwd)
 
 
 export WANDB_NAME=hd-hate--$(date +%D)--$(hostname)--${RANDOM}
-export WANDB_ENTITY='celia-nouri'
-export WANDB_PROJECT='hatespeech-class'
+export WANDB_PROJECT='ald_conversation'
 
 
 module purge

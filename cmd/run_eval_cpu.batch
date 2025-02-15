@@ -10,7 +10,6 @@
 #SBATCH --job-name=eval-bert-ctxemb-new-42 # Create a short name for your job
 #SBATCH --hint=multithread       # Request physical cores, not logical
 #SBATCH --mail-type=ALL
-#SBATCH --mail-user=celia.nouri@inria.fr
 
 echo "### Running $SLURM_JOB_NAME ###"
 
@@ -20,8 +19,7 @@ export SLURM_TMPDIR=$(pwd)
 export src=$(pwd)
 
 export WANDB_NAME=eval--$(date +%D)--$(hostname)--${RANDOM}
-export WANDB_ENTITY='celia-nouri'
-export WANDB_PROJECT='hatespeech-class'
+export WANDB_PROJECT='ald_conversation'
 
 module purge
 
