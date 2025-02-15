@@ -10,7 +10,7 @@
 #SBATCH --output=%x_%j.out       # output file name
 #SBATCH --mem=0  # Request all available memory on the node
 
-#SBATCH --job-name=eval-bot-gat-dir-5l-cad-512-3 # create a short name for your job
+#SBATCH --job-name=eval-bert-ctxemb-3 # create a short name for your job
 #SBATCH --hint=multithread       # we get physical cores not logical
 
 

@@ -84,11 +84,11 @@ def get_context_texts(conv_array, index):
         return [parent_text]
     return [post_text, parent_text]
 
-def get_context_texts_all(conv_array, index):
+def get_context_texts_all(conv_array, index, conv_indices_to_keep=[]):
     my_id = conv_array[index][0]['id']
     all_texts = []
-    for comment in conv_array:
-        if my_id != comment[0]['id']:
+    for i, comment in enumerate(conv_array):
+        if my_id != comment[0]['id'] and (len(conv_indices_to_keep) == 0 or i in conv_indices_to_keep):
             all_texts.append(comment[0]['body'])
     return all_texts
 
@@ -269,7 +269,9 @@ def run_model_pred(model, data, model_name, dataset_name, device, tokenizer=None
         y = data.y
         masked_index = data.y_mask.nonzero(as_tuple=True)[0]
         text = data.x_text[masked_index][0]['body']
-        context_texts = get_context_texts_all(data.x_text, masked_index)
+        mask = data["y_mask"]
+        _, _, conv_indices_to_keep, _ = get_graph(data.x_text, mask, with_temporal_edges=False, undirected=False, trim=model.trim)
+        context_texts = get_context_texts_all(data.x_text, masked_index, conv_indices_to_keep)
         labels = y.long().to(device)
         y_pred = model(context_texts, text, labels=labels) 
 

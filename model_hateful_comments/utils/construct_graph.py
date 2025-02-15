@@ -56,7 +56,7 @@ def temporal_edges(temporal_info, depths, vid2num, undirected=False):
 
   return temporal_edges
 
-def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True, new_trim=False):
+def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim="affordance", new_trim=False):
   masked_index = mask.nonzero(as_tuple=True)[0]
   x_node, _, _, label = x[masked_index]
   my_id = x_node['id']
@@ -69,6 +69,8 @@ def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True, n
   my_new_mask_idx = vid2num[my_id]
   if len(posts_ids) ==  1:
     edges_dic_num = {posts_ids[0]: edge_list}
+  else:
+    edges_dic_num = {my_id: edge_list}
   # dictionaries with key = root, value = vertex/edge list
 
   if with_temporal_edges:
@@ -77,7 +79,7 @@ def get_graph(x, mask, with_temporal_edges=False, undirected=False, trim=True, n
     #edge_list = list(set(edge_list + tempo_edges))
   return nodes, edges_dic_num, conv_indices_to_keep, my_new_mask_idx
 
-def get_hetero_graph(x, mask, with_temporal_edges=False, trim=True, new_trim=False):
+def get_hetero_graph(x, mask, with_temporal_edges=False, trim="affordance", new_trim=False):
   masked_index = mask.nonzero(as_tuple=True)[0]
   x_node, _, _, label = x[masked_index]
   my_id = x_node['id']
@@ -89,9 +91,9 @@ def get_hetero_graph(x, mask, with_temporal_edges=False, trim=True, new_trim=Fal
   #edges_dic_num = convert_to_num(edges_dic, vid2num)
   if len(posts_ids) ==  1:
     comments_edges_dic_num = {posts_ids[0]: comments_edge_list}
-  # dictionaries with key = root, value = vertex/edge list
   else:
-    raise ValueError("error: there is more than one post id in a graph: ", posts_ids)
+    comments_edges_dic_num = {my_id: comments_edge_list}
+  # dictionaries with key = root, value = vertex/edge list
 
   if with_temporal_edges:
     tempo_edges = temporal_edges(temporal_info, depths, vid2num)
@@ -146,7 +148,7 @@ def merge_dictionaries(dict1, dict2):
     return merged_dict
 
 
-def preprocess(conversation, mask_index, undirected=False, trim=True, new_trim=False):
+def preprocess(conversation, mask_index, undirected=False, trim="affordance", new_trim=False):
   edge_set = set()
   nodes = {}
   relations = {}
@@ -161,8 +163,12 @@ def preprocess(conversation, mask_index, undirected=False, trim=True, new_trim=F
   post_id = ""
   conv_indices_to_keep = []
 
-  if trim:
+  assert trim in ["affordance", "recent", ""]
+
+  if trim == "affordance":
     ids_to_keep = trim_tree(conversation, mask_index)
+  elif trim == "recent":
+    ids_to_keep = trim_tree_recent(conversation, mask_index)
 
   target_node = conversation[mask_index]
   target_id = target_node[0]['id']
@@ -224,25 +230,26 @@ def preprocess(conversation, mask_index, undirected=False, trim=True, new_trim=F
       else:
         RuntimeError('error the parent depth was not filled in the dict...')
       # add an edge from parent post to child
-      edge_set.add((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
+      if parent_id in vertex_id_to_num.keys() and key in vertex_id_to_num.keys():
+        edge_set.add((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
     
-      # /!\ Change in the tree trimming strategy: only add an edge from initial post to the target comment
-      # before we did not have this condition and we were adding an edge from the initial post to all nodes in the trimmed tree
-      if new_trim:
-        if key == target_id:
+      # Another tree trimming strategy: only add an edge from initial post to the target comment
+      # if new_trim is False, we instead add an edge from the initial post to all nodes in the trimmed tree
+      if post_id in vertex_id_to_num.keys():
+        if new_trim:
+          if key == target_id:
+            edge_set.add((vertex_id_to_num[post_id], vertex_id_to_num[key]))
+        else:
           edge_set.add((vertex_id_to_num[post_id], vertex_id_to_num[key]))
-      else:
-        edge_set.add((vertex_id_to_num[post_id], vertex_id_to_num[key]))
 
-      if undirected: # add revert all edges
+      if undirected and parent_id in vertex_id_to_num.keys(): # add revert all edges
         edge_set.add((vertex_id_to_num[key], vertex_id_to_num[parent_id]))
-        #edge_list.append((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
+        #edge_set.add((vertex_id_to_num[parent_id], vertex_id_to_num[key]))
   edge_list = list(edge_set)
   return posts_ids, nodes, relations, depths, edge_list, vertex_id_to_num, vertex_num_to_id, temporal_info, next_vertex, conv_indices_to_keep
 
 
 def trim_tree(conversation, node_index):
-    # Extract the target node and its timestamp
     target_node = conversation[node_index]
     target_timestamp = target_node[0]['created_utc']
     target_id = target_node[0]['id']
@@ -300,6 +307,28 @@ def trim_tree(conversation, node_index):
         else:
             break
     # Add the node of interest (node_index)
+    trimmed_ids.add(target_id)
+
+    return list(trimmed_ids)
+
+def trim_tree_recent(conversation, node_index):
+    target_node = conversation[node_index]
+    target_timestamp = target_node[0]['created_utc']
+    target_id = target_node[0]['id']
+
+    # Filter nodes created before the target timestamp
+    filtered_nodes = [node[0] for node in conversation if node[0]['created_utc'] <= target_timestamp]
+
+    # Sort by timestamp (most recent first)
+    filtered_nodes_sorted = sorted(filtered_nodes, key=lambda x: x['created_utc'], reverse=True)
+
+    # Keep at most 25 comments
+    trimmed_nodes = filtered_nodes_sorted[:25]
+
+    # Extract IDs of trimmed nodes
+    trimmed_ids = {node['id'] for node in trimmed_nodes}
+
+    # Ensure the target node is included
     trimmed_ids.add(target_id)
 
     return list(trimmed_ids)
