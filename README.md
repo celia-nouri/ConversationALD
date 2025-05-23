@@ -1,8 +1,8 @@
 # **ConversationALD: Graph Neural Networks for Abusive Language Detection in Social Media**
 
-This repository accompanies the paper:  
+This repository accompanies the paper:  \
 **Graphically Speaking: Unmasking Abuse in Social Media with Conversation Insights**  
-*Célia Nouri, Jean-Philippe Cointet, Chloé Clavel*  
+*Célia Nouri, Jean-Philippe Cointet, Chloé Clavel, in Proceedings of the 63rd Annual Conference of the Association for Computational Linguistics, 2025*  
 [arXiv:2504.01902](https://arxiv.org/abs/2504.01902)
 
 We introduce a graph-based approach to Abusive Language Detection (ALD) that models Reddit conversations as graphs, capturing both content and structural context.  
