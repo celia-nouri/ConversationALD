@@ -13,22 +13,22 @@ Our method leverages Graph Neural Networks (GNNs), and especially Graph Attentio
 ```
 ConversationALD/
 ├── cmd/
-│   ├── models/                   # Model definitions
+│   ├── models/                   # Model definitions, and directory to store checkpoints
 │   ├── mydatasets/               # Dataset handling
-│   ├── notebooks/                # Jupyter notebooks for exploration
-│   ├── utils/                    # Utility functions
+│   ├── notebooks/                # Jupyter notebooks for data exploration, and visualisation 
+│   ├── utils/                    # Utility functions (for data processing, training and evaluation)
 │   ├── analyze_graphs.py         # Graph analysis scripts
 │   ├── display_attention_weights.py
 │   ├── dump_data.py              # Data preprocessing
-│   ├── evaluate_many.py          # Batch evaluation
-│   ├── experiments.py            # Experiment configurations
-│   ├── main_evaluate.py          # Evaluation entry point
-│   ├── run_eval.batch            # Batch script for evaluation
-│   ├── run_eval_cpu.batch        # CPU-specific evaluation script
-│   └── run_train.batch           # Training script
+│   ├── evaluate_many.py          # Entry point to evaluate various models (called by run_eval)
+│   ├── experiments.py            # Entry point to train an experiment model (called by run_train)
+│   ├── main_evaluate.py          # Entry point to evaluate a model (called by run_eval)
+│   ├── run_eval.batch            # Batch script for evaluation (SLURM)
+│   ├── run_eval_cpu.batch        # CPU-specific evaluation script (SLURM)
+│   └── run_train.batch           # Training script (SLURM)
 ├── data/
 │   ├── create_balanced_ds.py     # Dataset balancing script
-│   ├── split-indices.py          # Data splitting script
+│   ├── split-indices.py          # Helper script for data splitting
 │   └── .gitignore                # Git ignore file
 ├── requirements.txt              # Python dependencies
 └── README.md                     # Project documentation
@@ -37,9 +37,9 @@ ConversationALD/
 ## **Installation**
 
 Clone the repository:
-``` git clone https://github.com/yourusername/ConversationALD.git``` 
+``` git clone https://github.com/celianouri/ConversationALD.git``` 
 ``` cd ConversationALD``` 
-Create and activate a virtual environment:
+Create and activate a virtual environment (using python or conda):
 ``` python3 -m venv venv``` 
 ``` source venv/bin/activate``` 
 Install dependencies:
@@ -64,53 +64,44 @@ Note: Due to Reddit's data policies, full conversation data may not be publicly 
 ## **Running the Codee**
 
 ### 1. Preprocess the Data
-Ensure that the CAD dataset and the extracted Reddit conversations are placed appropriately within the data/ directory. Use the provided scripts to preprocess and prepare the data:
-
-``` python data/create_balanced_ds.py``` 
-``` python data/split-indices.py``` 
+Ensure that the CAD dataset and the extracted Reddit conversations are formatted as graph.pt files, placed appropriately within the data/ directory, as `graph-xx.pt` files. 
 
 ### 2. Train the Model
-Initiate model training using the provided batch script:
+Modify the arguments in the `experiments.py` file, specifying the model name, number of layers, dataset size, trimming strategy, and graph construction method (directed, with or without temporal edges).
+Then, initiate model training locally directly from the python file 
+``` python cmd/experiments.py```
 
-bash cmd/run_train.batch
-This script will train the GNN model on the prepared dataset, utilizing the configurations specified in cmd/experiments.py.
+or using the provided batch script (SLURM):
+```bash cmd/run_train.batch```
 
 ### 3. Evaluate the Model
-After training, evaluate the model's performance:
+After training, evaluate the model's performance by modifying the `cmd/main_evaluate.py` arguments to match the ones used for training. Also, update the path to the model checkpoint in that same file.
 
+Then, initiate model evaluation locally using the python file 
+``` python cmd/main_evaluate.py```
+
+or using the provided batch script (SLURM):
 ``` bash cmd/run_eval.batch``` 
 For CPU-based evaluation, use:
-
 ``` bash cmd/run_eval_cpu.batch``` 
 
-Evaluation metrics and results will be outputted to the console and saved as specified in the evaluation scripts.
-
-## **Visualizations and Analysis**
-
-To analyze and visualize attention weights and graph structures:
-
-`python cmd/display_attention_weights.py`
-`python cmd/analyze_graphs.py`
-These scripts provide insights into the model's focus areas and the structural properties of the conversation graphs.
+Evaluation metrics and results will be outputted to the console, or saved as specified in the evaluation scripts (out and err files).
 
 ## **Citation**
 
 If you utilize this codebase or the methodologies presented in our paper, please cite:
 
+```
 @article{nouri2025graphically,
   title={Graphically Speaking: Unmasking Abuse in Social Media with Conversation Insights},
   author={Nouri, Célia and Cointet, Jean-Philippe and Clavel, Chloé},
-  journal={arXiv preprint arXiv:2504.01902},
-  year={2025}
+  booktitle={The 63rd Annual Meeting of the Association for Computational Linguistics},
+  year={2025},
 }
+```
 
 ## **Contact**
 
-For questions, collaborations, or access to the reconstructed Reddit conversations, please reach out to:
+For questions, collaborations, or access to the reconstructed Reddit conversations, please reach out to me by e-mail, using the e-mail provided in the paper.
 
-Célia Nouri: celia.nouri@inria.fr
-Jean-Philippe Cointet: jeanphilippe.cointet@sciencespo.fr
-Chloé Clavel: chloe.clavel@inria.fr
-ar5iv
 We hope this repository serves as a valuable resource for researchers and practitioners working on context-aware abusive language detection.
-arXiv
