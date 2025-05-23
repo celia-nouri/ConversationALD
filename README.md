@@ -1,20 +1,16 @@
-ConversationALD: Graph Neural Networks for Abusive Language Detection in Social Media
+# **ConversationALD: Graph Neural Networks for Abusive Language Detection in Social Media**
 
-This repository accompanies the paper:
-Graphically Speaking: Unmasking Abuse in Social Media with Conversation Insights
-Célia Nouri, Jean-Philippe Cointet, Chloé Clavel
-arXiv:2504.01902
+This repository accompanies the paper:  
+**Graphically Speaking: Unmasking Abuse in Social Media with Conversation Insights**  
+*Célia Nouri, Jean-Philippe Cointet, Chloé Clavel*  
+[arXiv:2504.01902](https://arxiv.org/abs/2504.01902)
 
-We introduce a graph-based approach to Abusive Language Detection (ALD) that models Reddit conversations as graphs, capturing both content and structural context. Our method leverages Graph Neural Networks (GNNs) to outperform traditional context-agnostic and linear context-aware models.
-AiModels
-+2
-arXiv
-+2
-ResearchGate
-+2
+We introduce a graph-based approach to Abusive Language Detection (ALD) that models Reddit conversations as graphs, capturing both content and structural context.  
+Our method leverages Graph Neural Networks (GNNs), and especially Graph Attention Networks (GATs) to outperform traditional context-agnostic and linear context-aware models.
 
-📁 Repository Structure
+## **Repository Structure**
 
+```
 ConversationALD/
 ├── cmd/
 │   ├── models/                   # Model definitions
@@ -36,76 +32,68 @@ ConversationALD/
 │   └── .gitignore                # Git ignore file
 ├── requirements.txt              # Python dependencies
 └── README.md                     # Project documentation
-📦 Installation
+```
+
+## **Installation**
 
 Clone the repository:
-git clone https://github.com/yourusername/ConversationALD.git
-cd ConversationALD
+``` git clone https://github.com/yourusername/ConversationALD.git``` 
+``` cd ConversationALD``` 
 Create and activate a virtual environment:
-python3 -m venv venv
-source venv/bin/activate
+``` python3 -m venv venv``` 
+``` source venv/bin/activate``` 
 Install dependencies:
-pip install -r requirements.txt
-📥 Dataset Preparation
+``` pip install -r requirements.txt``` 
 
-1. Download the CAD Dataset
+## **Dataset Preparation**
+
+### 1. Download the CAD Dataset
 We utilize the Contextual Abuse Dataset (CAD) introduced by Vidgen et al. (NAACL 2021). The dataset includes annotated Reddit conversations with abuse labels contextualized within conversation threads.
-ACL Anthology
-+2
-GitHub
-+2
-Enlighten Publications
-+2
 
 Paper: Introducing CAD: the Contextual Abuse Dataset
-GitHub Repository: dongpng/cad_naacl2021
+[github link](https://github.com/dongpng/cad_naacl2021/)
+[aclanthology:2021.naacl-main.182](https://aclanthology.org/2021.naacl-main.182/)
 Download the dataset from the GitHub repository or the associated Zenodo link provided therein.
 
-2. Extract Full Reddit Conversations
-To reconstruct full Reddit conversation threads, we recommend using the Arctic Shift project:
-GitHub
-
-Project Arctic Shift: arctic-shift.photon-reddit.com
-GitHub Repository: ArthurHeitmann/arctic_shift
+### 2. Extract Full Reddit Conversations
+To reconstruct full Reddit conversation threads, we recommend using the [Arctic Shift project](https://arctic-shift.photon-reddit.com)
 This tool provides access to archived Reddit data, allowing for the extraction of complete conversation threads necessary for our graph-based modeling.
-arctic-shift.photon-reddit.com
-+1
-GitHub
-+1
 
 Note: Due to Reddit's data policies, full conversation data may not be publicly distributable. Researchers interested in accessing the reconstructed conversations used in our study may contact us directly for potential collaboration.
 
-🏃 Running the Code
+## **Running the Codee**
 
-1. Preprocess the Data
+### 1. Preprocess the Data
 Ensure that the CAD dataset and the extracted Reddit conversations are placed appropriately within the data/ directory. Use the provided scripts to preprocess and prepare the data:
 
-python data/create_balanced_ds.py
-python data/split-indices.py
-2. Train the Model
+``` python data/create_balanced_ds.py``` 
+``` python data/split-indices.py``` 
+
+### 2. Train the Model
 Initiate model training using the provided batch script:
 
 bash cmd/run_train.batch
 This script will train the GNN model on the prepared dataset, utilizing the configurations specified in cmd/experiments.py.
 
-3. Evaluate the Model
+### 3. Evaluate the Model
 After training, evaluate the model's performance:
 
-bash cmd/run_eval.batch
+``` bash cmd/run_eval.batch``` 
 For CPU-based evaluation, use:
 
-bash cmd/run_eval_cpu.batch
+``` bash cmd/run_eval_cpu.batch``` 
+
 Evaluation metrics and results will be outputted to the console and saved as specified in the evaluation scripts.
 
-📊 Visualizations and Analysis
+## **Visualizations and Analysis**
 
 To analyze and visualize attention weights and graph structures:
 
-python cmd/display_attention_weights.py
-python cmd/analyze_graphs.py
+`python cmd/display_attention_weights.py`
+`python cmd/analyze_graphs.py`
 These scripts provide insights into the model's focus areas and the structural properties of the conversation graphs.
 
-📄 Citation
+## **Citation**
 
 If you utilize this codebase or the methodologies presented in our paper, please cite:
 
@@ -115,7 +103,8 @@ If you utilize this codebase or the methodologies presented in our paper, please
   journal={arXiv preprint arXiv:2504.01902},
   year={2025}
 }
-📬 Contact
+
+## **Contact**
 
 For questions, collaborations, or access to the reconstructed Reddit conversations, please reach out to:
 
